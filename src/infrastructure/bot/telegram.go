@@ -501,7 +501,7 @@ func getRulesSubMenuKeyboard(rules []domainBot.AutoReplyRule, page int) InlineKe
 				statusIcon = "🔴"
 			}
 			btn := InlineKeyboardButton{
-				Text:         fmt.Sprintf("%s #%d %s", statusIcon, i+1, r.Name),
+				Text:         fmt.Sprintf("%s %d %s", statusIcon, i+1, r.Name),
 				CallbackData: fmt.Sprintf("/viewrule %d", i+1),
 			}
 			rowBuf = append(rowBuf, btn)
@@ -562,7 +562,7 @@ func getSchedulesSubMenuKeyboard(schedules []domainBot.ScheduledMessage) InlineK
 				statusIcon = "🟢"
 			}
 			btn := InlineKeyboardButton{
-				Text:         fmt.Sprintf("%s Jadwal #%d", statusIcon, i+1),
+				Text:         fmt.Sprintf("%s Jadwal %d", statusIcon, i+1),
 				CallbackData: fmt.Sprintf("/viewschedule %d", i+1),
 			}
 			delBtn := InlineKeyboardButton{
@@ -881,7 +881,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		if !r.Enabled {
 			toggleLabel = "🟢 Aktifkan"
 		}
-		out := fmt.Sprintf("📜 <b>DETAIL RULE #%d</b>\n\n"+
+		out := fmt.Sprintf("📜 <b>DETAIL RULE %d</b>\n\n"+
 			"• Nama: <b>%s</b>\n"+
 			"• ID: <code>%d</code> (UUID: <code>%s</code>)\n"+
 			"• Status: <b>%s</b>\n"+
@@ -893,7 +893,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			InlineKeyboard: [][]InlineKeyboardButton{
 				{
 					{Text: toggleLabel, CallbackData: toggleCmd},
-					{Text: fmt.Sprintf("🗑️ Hapus Rule #%d", idx), CallbackData: fmt.Sprintf("/delrule %d", idx)},
+					{Text: fmt.Sprintf("🗑️ Hapus Rule %d", idx), CallbackData: fmt.Sprintf("/delrule %d", idx)},
 				},
 				{
 					{Text: "◀ Kembali ke Daftar", CallbackData: "/listrules 1"},
@@ -922,7 +922,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		if !r.Enabled {
 			statusTxt = "🔴 DINONAKTIFKAN"
 		}
-		return fmt.Sprintf("✅ <b>Rule #%d '%s' berhasil %s!</b>", idx, r.Name, statusTxt), getRulesSubMenuKeyboard(freshRules, 1)
+		return fmt.Sprintf("✅ <b>Rule %d '%s' berhasil %s!</b>", idx, r.Name, statusTxt), getRulesSubMenuKeyboard(freshRules, 1)
 	}
 
 	if (strings.HasPrefix(lower, "/addrule ") || strings.HasPrefix(lower, "/addrule\n") || strings.HasPrefix(lower, "/addrule\r")) && len(cmd) > 8 {
@@ -978,7 +978,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		if targetID != "" {
 			if err := repo.DeleteRule(ctx, targetID); err == nil {
 				freshRules, _ := repo.ListRules(ctx, "")
-				return fmt.Sprintf("🗑️ <b>RULE #%s BERHASIL DIHAPUS!</b>", target), getRulesSubMenuKeyboard(freshRules, 1)
+				return fmt.Sprintf("🗑️ <b>RULE %s BERHASIL DIHAPUS!</b>", target), getRulesSubMenuKeyboard(freshRules, 1)
 			}
 		}
 		freshRules, _ := repo.ListRules(ctx, "")
@@ -993,7 +993,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 		out := fmt.Sprintf("⏰ <b>DAFTAR PESAN TERJADWAL (%d MESSAGES):</b>\n\n", len(list))
 		for i, m := range list {
-			out += fmt.Sprintf("<b>%d. Jadwal #%d</b> (ID: <code>%s</code>) — Status: <b>%s</b>\n• WA: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>\n\n",
+			out += fmt.Sprintf("<b>%d. Jadwal %d</b> (ID: <code>%s</code>) — Status: <b>%s</b>\n• WA: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>\n\n",
 				i+1, i+1, shortID(m.ID), m.Status, m.Phone, m.SendAt.Format("02 Jan 2006 15:04 WIB"), m.Message)
 		}
 		out += "💡 <i>Salin cepat: <code>/addschedule </code> | <code>/delschedule </code></i>"
@@ -1020,7 +1020,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			if s.Status == "sent" {
 				statusIcon = "🟢 TERKIRIM"
 			}
-			out := fmt.Sprintf("⏰ <b>DETAIL PESAN TERJADWAL #%d</b>\n\n"+
+			out := fmt.Sprintf("⏰ <b>DETAIL PESAN TERJADWAL %d</b>\n\n"+
 				"• ID: <code>%d</code> (UUID: <code>%s</code>)\n"+
 				"• Status: <b>%s</b>\n"+
 				"• WA Tujuan: <code>%s</code>\n"+
@@ -1091,7 +1091,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		if targetID != "" {
 			if err := repo.DeleteScheduledMessage(ctx, targetID); err == nil {
 				freshScheds, _ := repo.ListScheduledMessages(ctx, "")
-				return fmt.Sprintf("🗑️ <b>JADWAL #%s BERHASIL DIHAPUS!</b>", target), getSchedulesSubMenuKeyboard(freshScheds)
+				return fmt.Sprintf("🗑️ <b>JADWAL %s BERHASIL DIHAPUS!</b>", target), getSchedulesSubMenuKeyboard(freshScheds)
 			}
 		}
 		freshScheds, _ := repo.ListScheduledMessages(ctx, "")

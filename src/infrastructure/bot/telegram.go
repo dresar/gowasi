@@ -1168,21 +1168,18 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		if len(parts) == 2 {
 			targetPhone := strings.TrimSpace(parts[0])
 			customPrompt := strings.TrimSpace(parts[1])
-			if cfg.CustomNumberPrompts == nil {
-				cfg.CustomNumberPrompts = make(map[string]string)
+			// Use atomic update - avoids race condition with full UpsertAIConfig
+			if err := repo.SetCustomPrompt(ctx, targetPhone, customPrompt); err != nil {
+				return fmt.Sprintf("⚠️ <b>Gagal menyimpan prompt untuk %s: %v</b>", targetPhone, err), getPromptsSubMenuKeyboard()
 			}
-			cfg.CustomNumberPrompts[targetPhone] = customPrompt
-			_, _ = repo.UpsertAIConfig(ctx, *cfg)
 			return fmt.Sprintf("💖 <b>PROMPT KHUSUS BERHASIL DISIMPAN UNTUK %s!</b>\n\n<b>Prompt:</b> <i>%s</i>", targetPhone, customPrompt), getPromptsSubMenuKeyboard()
 		}
 	}
 
 	if (strings.HasPrefix(lower, "/delprompt ") || strings.HasPrefix(lower, "/delprompt\n") || strings.HasPrefix(lower, "/delprompt\r")) && len(cmd) > 10 {
 		targetPhone := strings.TrimSpace(cmd[10:])
-		if cfg.CustomNumberPrompts != nil {
-			delete(cfg.CustomNumberPrompts, targetPhone)
-			_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		}
+		// Use atomic update - avoids race condition with full UpsertAIConfig
+		_ = repo.DeleteCustomPrompt(ctx, targetPhone)
 		return fmt.Sprintf("🗑️ <b>PROMPT KHUSUS UNTUK %s BERHASIL DIHAPUS.</b>", targetPhone), getPromptsSubMenuKeyboard()
 	}
 

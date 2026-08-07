@@ -97,6 +97,9 @@ type IBotRepository interface {
 
 	GetAIConfig(ctx context.Context, deviceID string) (*AIConfig, error)
 	UpsertAIConfig(ctx context.Context, cfg AIConfig) (AIConfig, error)
+	// Atomic single-key operations for custom prompts (avoids race condition with full UpsertAIConfig)
+	SetCustomPrompt(ctx context.Context, phone, prompt string) error
+	DeleteCustomPrompt(ctx context.Context, phone string) error
 
 	AddLog(ctx context.Context, log ActivityLog) error
 	ListLogs(ctx context.Context, deviceID string, limit int) ([]ActivityLog, error)

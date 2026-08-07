@@ -354,6 +354,50 @@ func (r *SQLiteRepository) UpsertAIConfig(ctx context.Context, cfg domainBot.AIC
 	return cfg, err
 }
 
+// SetCustomPrompt atomically sets a single phone→prompt entry in the
+// custom_number_prompts JSON column without touching other config fields.
+// This prevents race conditions where a concurrent UpsertAIConfig call
+// (with a stale cfg snapshot) would overwrite the whole map with {}.
+func (r *SQLiteRepository) SetCustomPrompt(ctx context.Context, phone, prompt string) error {
+	// Read current map, merge, write back only that column
+	row := r.db.QueryRowContext(ctx, `SELECT custom_number_prompts FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1`)
+	var rawJSON string
+	_ = row.Scan(&rawJSON)
+
+	m := make(map[string]string)
+	_ = json.Unmarshal([]byte(rawJSON), &m)
+	m[phone] = prompt
+
+	newJSON, _ := json.Marshal(m)
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE bot_ai_config SET custom_number_prompts=?, updated_at=? WHERE id=(SELECT id FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1)`,
+		string(newJSON), time.Now().UTC(),
+	)
+	logrus.Infof("[BOT_REPO] SetCustomPrompt for %s: stored %d prompts", phone, len(m))
+	return err
+}
+
+// DeleteCustomPrompt atomically removes a phone entry from custom_number_prompts.
+func (r *SQLiteRepository) DeleteCustomPrompt(ctx context.Context, phone string) error {
+	row := r.db.QueryRowContext(ctx, `SELECT custom_number_prompts FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1`)
+	var rawJSON string
+	_ = row.Scan(&rawJSON)
+
+	m := make(map[string]string)
+	_ = json.Unmarshal([]byte(rawJSON), &m)
+	delete(m, phone)
+
+	newJSON, _ := json.Marshal(m)
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE bot_ai_config SET custom_number_prompts=?, updated_at=? WHERE id=(SELECT id FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1)`,
+		string(newJSON), time.Now().UTC(),
+	)
+	logrus.Infof("[BOT_REPO] DeleteCustomPrompt for %s", phone)
+	return err
+}
+
+
+
 func (r *SQLiteRepository) AddLog(ctx context.Context, log domainBot.ActivityLog) error {
 	log.ID = uuid.New().String()
 	log.Timestamp = time.Now().UTC()

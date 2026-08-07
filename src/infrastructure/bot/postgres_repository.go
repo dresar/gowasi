@@ -333,6 +333,40 @@ func (r *PostgresRepository) UpsertAIConfig(ctx context.Context, cfg domainBot.A
 	return cfg, err
 }
 
+// SetCustomPrompt atomically sets a single phone→prompt entry in custom_number_prompts.
+func (r *PostgresRepository) SetCustomPrompt(ctx context.Context, phone, prompt string) error {
+	row := r.db.QueryRowContext(ctx, `SELECT custom_number_prompts FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1`)
+	var rawJSON string
+	_ = row.Scan(&rawJSON)
+	m := make(map[string]string)
+	_ = json.Unmarshal([]byte(rawJSON), &m)
+	m[phone] = prompt
+	newJSON, _ := json.Marshal(m)
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE bot_ai_config SET custom_number_prompts=$1, updated_at=$2 WHERE id=(SELECT id FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1)`,
+		string(newJSON), time.Now().UTC(),
+	)
+	return err
+}
+
+// DeleteCustomPrompt atomically removes a phone entry from custom_number_prompts.
+func (r *PostgresRepository) DeleteCustomPrompt(ctx context.Context, phone string) error {
+	row := r.db.QueryRowContext(ctx, `SELECT custom_number_prompts FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1`)
+	var rawJSON string
+	_ = row.Scan(&rawJSON)
+	m := make(map[string]string)
+	_ = json.Unmarshal([]byte(rawJSON), &m)
+	delete(m, phone)
+	newJSON, _ := json.Marshal(m)
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE bot_ai_config SET custom_number_prompts=$1, updated_at=$2 WHERE id=(SELECT id FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1)`,
+		string(newJSON), time.Now().UTC(),
+	)
+	return err
+}
+
+
+
 func (r *PostgresRepository) AddLog(ctx context.Context, log domainBot.ActivityLog) error {
 	log.ID = uuid.New().String()
 	log.Timestamp = time.Now().UTC()

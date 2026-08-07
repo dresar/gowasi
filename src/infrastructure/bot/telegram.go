@@ -399,22 +399,40 @@ func getMainMenuKeyboard() InlineKeyboardMarkup {
 	}
 }
 
-func getKeysSubMenuKeyboard() InlineKeyboardMarkup {
-	return InlineKeyboardMarkup{
-		InlineKeyboard: [][]InlineKeyboardButton{
-			{
-				{Text: "🔄 Refresh List", CallbackData: "/listkeys"},
-				{Text: "🧪 Test Key #1", CallbackData: "/testkey 1"},
-			},
-			{
-				{Text: "➕ Tambah Key", CallbackData: "/help_addkey"},
-				{Text: "🗑️ Hapus Key", CallbackData: "/help_delkey"},
-			},
-			{
-				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
-			},
-		},
+func getKeysSubMenuKeyboard(keysCount int) InlineKeyboardMarkup {
+	var rows [][]InlineKeyboardButton
+
+	if keysCount > 0 {
+		var testRow []InlineKeyboardButton
+		for i := 1; i <= keysCount; i++ {
+			btn := InlineKeyboardButton{
+				Text:         fmt.Sprintf("🔑 Test %d", i),
+				CallbackData: fmt.Sprintf("/testkey %d", i),
+			}
+			testRow = append(testRow, btn)
+			if len(testRow) == 2 {
+				rows = append(rows, testRow)
+				testRow = nil
+			}
+		}
+		if len(testRow) > 0 {
+			rows = append(rows, testRow)
+		}
 	}
+
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔄 Refresh List", CallbackData: "/listkeys"},
+		{Text: "➕ Tambah Key", CallbackData: "/help_addkey"},
+	})
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🗑️ Hapus Key", CallbackData: "/help_delkey"},
+		{Text: "📊 Status Engine", CallbackData: "/status"},
+	})
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+	})
+
+	return InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 func getRulesSubMenuKeyboard() InlineKeyboardMarkup {
@@ -531,7 +549,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 	if lower == "/listkeys" {
 		keys := parseGroqKeys(cfg.APIKey)
 		if len(keys) == 0 {
-			return "🔑 <b>MANAJEMEN GROQ API KEYS</b>\n\n⚠️ <b>Belum ada Groq API Key tersimpan.</b>\nKlik tombol <b>➕ Tambah Key</b> di bawah ini.", getKeysSubMenuKeyboard()
+			return "🔑 <b>MANAJEMEN GROQ API KEYS</b>\n\n⚠️ <b>Belum ada Groq API Key tersimpan.</b>\nKlik tombol <b>➕ Tambah Key</b> di bawah ini.", getKeysSubMenuKeyboard(0)
 		}
 		out := fmt.Sprintf("🔑 <b>DAFTAR GROQ API KEYS (%d KEYS AKTIF):</b>\n\n", len(keys))
 		for i, k := range keys {
@@ -542,22 +560,24 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			out += fmt.Sprintf("%d. <code>%s</code>\n", i+1, masked)
 		}
 		out += "\n💡 <i>Salin cepat: <code>/addkey </code> | <code>/delkey </code> | <code>/testkey 1</code></i>"
-		return out, getKeysSubMenuKeyboard()
+		return out, getKeysSubMenuKeyboard(len(keys))
 	}
 
 	if lower == "/help_addkey" {
-		return "🔑 <b>CARA MENAMBAH GROQ API KEY:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/addkey </code>\n\n💡 <i>Sentuh/tap teks biru <code>/addkey </code> di atas untuk menyalin langsung!</i>", getKeysSubMenuKeyboard()
+		keys := parseGroqKeys(cfg.APIKey)
+		return "🔑 <b>CARA MENAMBAH GROQ API KEY:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/addkey </code>\n\n💡 <i>Sentuh/tap teks biru <code>/addkey </code> di atas untuk menyalin langsung!</i>", getKeysSubMenuKeyboard(len(keys))
 	}
 
 	if lower == "/help_delkey" {
-		return "🗑️ <b>CARA MENGHAPUS GROQ API KEY:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/delkey </code>\n\nContoh: <code>/delkey 1</code>", getKeysSubMenuKeyboard()
+		keys := parseGroqKeys(cfg.APIKey)
+		return "🗑️ <b>CARA MENGHAPUS GROQ API KEY:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/delkey </code>\n\nContoh: <code>/delkey 1</code>", getKeysSubMenuKeyboard(len(keys))
 	}
 
 	if strings.HasPrefix(lower, "/testkey") {
 		target := strings.TrimSpace(cmd[8:])
 		keys := parseGroqKeys(cfg.APIKey)
 		if len(keys) == 0 {
-			return "⚠️ <b>Belum ada Groq API Key yang tersimpan untuk diuji.</b>", getKeysSubMenuKeyboard()
+			return "⚠️ <b>Belum ada Groq API Key yang tersimpan untuk diuji.</b>", getKeysSubMenuKeyboard(0)
 		}
 
 		keyIndex := 0
@@ -573,9 +593,9 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 
 		err := testGroqSingleKey(ctx, testKey)
 		if err == nil {
-			return fmt.Sprintf("✅ <b>GROQ API KEY #%d VALID!</b>\n\n• Key: <code>%s</code>\n• Status: Active &amp; Ready", keyIndex+1, masked), getKeysSubMenuKeyboard()
+			return fmt.Sprintf("✅ <b>GROQ API KEY #%d VALID!</b>\n\n• Key: <code>%s</code>\n• Status: Active &amp; Ready", keyIndex+1, masked), getKeysSubMenuKeyboard(len(keys))
 		}
-		return fmt.Sprintf("⚠️ <b>GROQ API KEY #%d ERROR!</b>\n\n• Key: <code>%s</code>\n• Status: Invalid / Kuota Habis", keyIndex+1, masked), getKeysSubMenuKeyboard()
+		return fmt.Sprintf("⚠️ <b>GROQ API KEY #%d ERROR!</b>\n\n• Key: <code>%s</code>\n• Status: Invalid / Kuota Habis", keyIndex+1, masked), getKeysSubMenuKeyboard(len(keys))
 	}
 
 	if strings.HasPrefix(lower, "/addkey ") {
@@ -588,7 +608,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
 			keys := parseGroqKeys(cfg.APIKey)
-			return fmt.Sprintf("✅ <b>GROQ API KEY BERHASIL DITAMBAHKAN!</b>\n\nKey: <code>%s</code>\nTotal Keys: <b>%d Keys</b>", newKey, len(keys)), getKeysSubMenuKeyboard()
+			return fmt.Sprintf("✅ <b>GROQ API KEY BERHASIL DITAMBAHKAN!</b>\n\nKey: <code>%s</code>\nTotal Keys: <b>%d Keys</b>", newKey, len(keys)), getKeysSubMenuKeyboard(len(keys))
 		}
 	}
 
@@ -612,7 +632,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 		cfg.APIKey = strings.Join(newKeys, "\n")
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		return fmt.Sprintf("🗑️ <b>KEY BERHASIL DIHAPUS.</b> Sisa Key Aktif: <b>%d Keys</b>", len(newKeys)), getKeysSubMenuKeyboard()
+		return fmt.Sprintf("🗑️ <b>KEY BERHASIL DIHAPUS.</b> Sisa Key Aktif: <b>%d Keys</b>", len(newKeys)), getKeysSubMenuKeyboard(len(newKeys))
 	}
 
 	// ── 2. AUTO-REPLY RULES SUB-MENU & CRUD ──

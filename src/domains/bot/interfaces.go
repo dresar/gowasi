@@ -100,4 +100,19 @@ type IBotRepository interface {
 
 	AddLog(ctx context.Context, log ActivityLog) error
 	ListLogs(ctx context.Context, deviceID string, limit int) ([]ActivityLog, error)
+
+	CreateScheduledMessage(ctx context.Context, msg ScheduledMessage) (ScheduledMessage, error)
+	ListScheduledMessages(ctx context.Context, deviceID string) ([]ScheduledMessage, error)
+	DeleteScheduledMessage(ctx context.Context, id string) error
+	MarkScheduledMessageSent(ctx context.Context, id string) error
+}
+
+type ScheduledMessage struct {
+	ID        string    `json:"id" db:"id"`
+	DeviceID  string    `json:"device_id" db:"device_id"`
+	Phone     string    `json:"phone" db:"phone"`
+	Message   string    `json:"message" db:"message"`
+	SendAt    time.Time `json:"send_at" db:"send_at"`
+	Status    string    `json:"status" db:"status"` // pending | sent | failed
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }

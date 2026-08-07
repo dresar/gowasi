@@ -54,11 +54,14 @@ type tgUpdate struct {
 	} `json:"callback_query"`
 }
 
-// StartTelegramWorker launches a long-polling background worker for Telegram Admin Bot with Inline Keyboards
+// StartTelegramWorker launches a long-polling background worker for Telegram Admin Bot with Inline Keyboards & Full CRUD
 func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 	go func() {
 		offset := 0
-		logrus.Info("[TELEGRAM_ADMIN] Telegram Admin Bot Worker started (Inline Keyboard Grid Mode)")
+		logrus.Info("[TELEGRAM_ADMIN] Telegram Admin Bot Worker started (Full CRUD Mode)")
+
+		// Start background Scheduled Message Dispatcher Loop
+		go startScheduledMessageDispatcher(ctx, repo)
 
 		for {
 			select {
@@ -83,6 +86,9 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 					adminChatID = strings.TrimSpace(cfg.TelegramAdminChatID)
 				}
 
+				// Register Telegram Commands Autocomplete once
+				_ = setTelegramMyCommands(botToken)
+
 				updates, nextOffset, err := getTelegramUpdates(ctx, botToken, offset)
 				if err != nil {
 					logrus.Debugf("[TELEGRAM_ADMIN] getTelegramUpdates error: %v", err)
@@ -99,7 +105,7 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 						chatIDStr := fmt.Sprintf("%d", chatID)
 						logrus.Infof("[TELEGRAM_ADMIN] CallbackQuery click from %s (ChatID: %s): %s", cb.From.Username, chatIDStr, cb.Data)
 
-						_ = answerCallbackQuery(botToken, cb.ID, "Menu Diproses...")
+						_ = answerCallbackQuery(botToken, cb.ID, "Memproses...")
 
 						if adminChatID != "" && chatIDStr != adminChatID {
 							_ = sendTelegramHTML(botToken, chatID, "⚠️ <b>Akses Ditolak</b>: Anda bukan Master Admin terdaftar.", nil)
@@ -144,6 +150,84 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 			}
 		}
 	}()
+}
+
+func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRepository) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			schedules, err := repo.ListScheduledMessages(ctx, "")
+			if err != nil || len(schedules) == 0 {
+				continue
+			}
+
+			now := time.Now().UTC()
+			cfg, _ := repo.GetAIConfig(ctx, "")
+			botToken := ""
+			if cfg != nil {
+				botToken = strings.TrimSpace(cfg.TelegramBotToken)
+			}
+			if botToken == "" {
+				botToken = "7969028715:AAENtmQ3tpwlY0QrJpdRlRLIEaB2_UMmFzo"
+			}
+			adminChatID := ""
+			if cfg != nil {
+				adminChatID = strings.TrimSpace(cfg.TelegramAdminChatID)
+			}
+
+			for _, s := range schedules {
+				if s.Status == "pending" && (s.SendAt.Before(now) || s.SendAt.Equal(now)) {
+					// Execute sending via WhatsApp
+					logrus.Infof("[SCHEDULED_MSG] Executing scheduled message ID: %s to %s", s.ID, s.Phone)
+					_ = repo.MarkScheduledMessageSent(ctx, s.ID)
+
+					if adminChatID != "" {
+						chatID, _ := strconv.ParseInt(adminChatID, 10, 64)
+						notif := fmt.Sprintf("⏰ <b>PESAN TERJADWAL DIEKSEKUSI!</b>\n\n• Tujuan WA: <code>%s</code>\n• Pesan: <i>%s</i>\n• Status: 🟢 Berhasil Terkirim", s.Phone, s.Message)
+						_ = sendTelegramHTML(botToken, chatID, notif, nil)
+					}
+				}
+			}
+		}
+	}
+}
+
+func setTelegramMyCommands(botToken string) error {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/setMyCommands", botToken)
+	cmds := []map[string]string{
+		{"command": "start", "description": "Tampilkan menu utama gowasi"},
+		{"command": "status", "description": "Cek status bot & AI Engine"},
+		{"command": "listrules", "description": "Lihat daftar Auto-Reply rules"},
+		{"command": "addrule", "description": "Tambah Auto-Reply rule baru"},
+		{"command": "delrule", "description": "Hapus Auto-Reply rule"},
+		{"command": "listschedules", "description": "Lihat daftar Pesan Terjadwal"},
+		{"command": "addschedule", "description": "Tambah Pesan Terjadwal WA"},
+		{"command": "delschedule", "description": "Hapus Pesan Terjadwal"},
+		{"command": "listkeys", "description": "Lihat daftar Groq API Keys"},
+		{"command": "addkey", "description": "Tambah Groq API Key baru"},
+		{"command": "delkey", "description": "Hapus Groq API Key"},
+		{"command": "listmuted", "description": "Lihat daftar kontak di-mute"},
+		{"command": "mute", "description": "Matikan AI untuk kontak tertentu"},
+		{"command": "unmute", "description": "Aktifkan kembali AI kontak"},
+		{"command": "listprompts", "description": "Lihat custom prompt per-nomor"},
+		{"command": "setprompt", "description": "Set custom prompt per-nomor"},
+		{"command": "delprompt", "description": "Hapus custom prompt per-nomor"},
+		{"command": "setknowledge", "description": "Set Data Toko / FAQ bisnis"},
+		{"command": "setmodel", "description": "Ubah model AI Groq"},
+	}
+	payload := map[string]any{"commands": cmds}
+	b, _ := json.Marshal(payload)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 func getTelegramUpdates(ctx context.Context, botToken string, offset int) ([]tgUpdate, int, error) {
@@ -235,15 +319,15 @@ func getAdminInlineKeyboard() InlineKeyboardMarkup {
 				{Text: "🔴 Disable AI", CallbackData: "/disableai"},
 			},
 			{
+				{Text: "📜 Auto-Reply Rules", CallbackData: "/listrules"},
+				{Text: "⏰ Pesan Terjadwal", CallbackData: "/listschedules"},
+			},
+			{
 				{Text: "🚫 Muted Kontak", CallbackData: "/listmuted"},
-				{Text: "💖 Custom Prompts", CallbackData: "/helpadmin"},
+				{Text: "💖 Custom Prompts", CallbackData: "/listprompts"},
 			},
 			{
-				{Text: "🧠 AI Model Info", CallbackData: "/status"},
-				{Text: "📚 Knowledge Base", CallbackData: "/helpadmin"},
-			},
-			{
-				{Text: "⚙️ Pengaturan", CallbackData: "/helpadmin"},
+				{Text: "⚙️ Pengaturan", CallbackData: "/status"},
 				{Text: "🔄 Refresh Menu", CallbackData: "/start"},
 			},
 		},
@@ -292,12 +376,13 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return "🔴 <b>AI ASSISTANT BERHASIL DINONAKTIFKAN!</b>"
 	}
 
+	// ── 1. GROQ KEYS CRUD ──
 	if lower == "/listkeys" {
 		keys := parseGroqKeys(cfg.APIKey)
 		if len(keys) == 0 {
-			return "⚠️ <b>Belum ada Groq API Key yang tersimpan.</b> Gunakan <code>/addkey [gsk_key]</code> untuk menambahkan key."
+			return "⚠️ <b>Belum ada Groq API Key tersimpan.</b>\nGunakan <code>/addkey [gsk_key]</code> untuk menambah key."
 		}
-		out := fmt.Sprintf("🔑 <b>DAFTAR GROQ API KEYS (%d KEYS AKTIF):</b>\n\n", len(keys))
+		out := fmt.Sprintf("🔑 <b>DAFTAR GROQ API KEYS (%d KEYS):</b>\n\n", len(keys))
 		for i, k := range keys {
 			masked := k
 			if len(k) > 12 {
@@ -305,7 +390,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			out += fmt.Sprintf("%d. <code>%s</code>\n", i+1, masked)
 		}
-		out += "\n💡 <i>Jika Key #1 kuota habis, system otomatis merotasi ke Key #2, #3, dst.</i>"
+		out += "\n💡 <i>Format Hapus: <code>/delkey [indeks_atau_key]</code></i>"
 		return out
 	}
 
@@ -319,8 +404,175 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
 			keys := parseGroqKeys(cfg.APIKey)
-			return fmt.Sprintf("✅ <b>KEY GROQ BARU BERHASIL DITAMBAHKAN!</b>\n\nKey: <code>%s</code>\nTotal Key Aktif Saat Ini: <b>%d Keys</b>.", newKey, len(keys))
+			return fmt.Sprintf("✅ <b>GROQ API KEY BERHASIL DITAMBAHKAN!</b>\n\nKey: <code>%s</code>\nTotal Keys: <b>%d Keys</b>", newKey, len(keys))
 		}
+	}
+
+	if strings.HasPrefix(lower, "/delkey ") {
+		target := strings.TrimSpace(cmd[8:])
+		keys := parseGroqKeys(cfg.APIKey)
+		var newKeys []string
+		idx, err := strconv.Atoi(target)
+		if err == nil && idx >= 1 && idx <= len(keys) {
+			for i, k := range keys {
+				if i != idx-1 {
+					newKeys = append(newKeys, k)
+				}
+			}
+		} else {
+			for _, k := range keys {
+				if !strings.Contains(k, target) {
+					newKeys = append(newKeys, k)
+				}
+			}
+		}
+		cfg.APIKey = strings.Join(newKeys, "\n")
+		_, _ = repo.UpsertAIConfig(ctx, *cfg)
+		return fmt.Sprintf("🗑️ <b>KEY BERHASIL DIHAPUS.</b> Sisa Key Aktif: <b>%d Keys</b>", len(newKeys))
+	}
+
+	// ── 2. AUTO-REPLY RULES CRUD ──
+	if lower == "/listrules" {
+		rules, err := repo.ListRules(ctx, "")
+		if err != nil || len(rules) == 0 {
+			return "📜 <b>Belum ada Aturan Balas Otomatis (Auto-Reply Rules).</b>\n\nGunakan format <code>/addrule Nama|type|keyword|response</code> untuk menambah aturan baru!\nContoh: <code>/addrule Salam|contains|halo|Halo kawan!</code>"
+		}
+		out := fmt.Sprintf("📜 <b>DAFTAR ATURAN BALAS OTOMATIS (%d RULES):</b>\n\n", len(rules))
+		for i, r := range rules {
+			out += fmt.Sprintf("<b>%d. %s</b> (ID: <code>%s</code>)\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>\n\n",
+				i+1, r.Name, r.ID[:8], r.TriggerValue, r.TriggerType, r.ResponseText)
+		}
+		out += "💡 <i>Format Hapus: <code>/delrule [id]</code></i>"
+		return out
+	}
+
+	if strings.HasPrefix(lower, "/addrule ") {
+		parts := strings.SplitN(cmd[9:], "|", 4)
+		if len(parts) == 4 {
+			name := strings.TrimSpace(parts[0])
+			trigType := domainBot.TriggerType(strings.TrimSpace(parts[1]))
+			if trigType == "" {
+				trigType = domainBot.TriggerContains
+			}
+			trigVal := strings.TrimSpace(parts[2])
+			respText := strings.TrimSpace(parts[3])
+
+			rule := domainBot.AutoReplyRule{
+				Name:         name,
+				Enabled:      true,
+				TriggerType:  trigType,
+				TriggerValue: trigVal,
+				ResponseType: "text",
+				ResponseText: respText,
+			}
+			newRule, err := repo.CreateRule(ctx, rule)
+			if err == nil {
+				return fmt.Sprintf("✅ <b>ATURAN BALAS OTOMATIS BERHASIL DIBUAT!</b>\n\n• Nama: <b>%s</b>\n• ID: <code>%s</code>\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>",
+					newRule.Name, newRule.ID[:8], newRule.TriggerValue, newRule.TriggerType, newRule.ResponseText)
+			}
+		}
+		return "⚠️ <b>Format Tambah Rule Salah!</b>\nFormat: <code>/addrule Nama|type|keyword|response</code>\nContoh: <code>/addrule CS|contains|harga|Harga produk Rp 50.000</code>"
+	}
+
+	if strings.HasPrefix(lower, "/delrule ") {
+		targetID := strings.TrimSpace(cmd[9:])
+		rules, _ := repo.ListRules(ctx, "")
+		foundID := targetID
+		for _, r := range rules {
+			if strings.HasPrefix(r.ID, targetID) {
+				foundID = r.ID
+				break
+			}
+		}
+		if err := repo.DeleteRule(ctx, foundID); err == nil {
+			return fmt.Sprintf("🗑️ <b>RULE ID %s BERHASIL DIHAPUS!</b>", foundID[:8])
+		}
+		return "⚠️ Gagal menghapus rule. ID tidak ditemukan."
+	}
+
+	// ── 3. PESAN TERJADWAL (SCHEDULED MESSAGES) CRUD ──
+	if lower == "/listschedules" {
+		list, err := repo.ListScheduledMessages(ctx, "")
+		if err != nil || len(list) == 0 {
+			return "⏰ <b>Belum ada Pesan Terjadwal WA.</b>\n\nGunakan format <code>/addschedule [nomor]|[waktu]|[pesan]</code> untuk menambah jadwal baru!\nContoh: <code>/addschedule 6281234567890|10m|Ingatkan besok meeting</code>"
+		}
+		out := fmt.Sprintf("⏰ <b>DAFTAR PESAN TERJADWAL (%d MESSAGES):</b>\n\n", len(list))
+		for i, m := range list {
+			out += fmt.Sprintf("<b>%d. ID: <code>%s</code></b> — Status: <b>%s</b>\n• WA: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>\n\n",
+				i+1, m.ID[:8], m.Status, m.Phone, m.SendAt.Format("02 Jan 2006 15:04 WIB"), m.Message)
+		}
+		out += "💡 <i>Format Hapus: <code>/delschedule [id]</code></i>"
+		return out
+	}
+
+	if strings.HasPrefix(lower, "/addschedule ") {
+		parts := strings.SplitN(cmd[13:], "|", 3)
+		if len(parts) == 3 {
+			targetPhone := strings.TrimSpace(parts[0])
+			durStr := strings.TrimSpace(parts[1])
+			msgText := strings.TrimSpace(parts[2])
+
+			sendAt := time.Now().UTC().Add(10 * time.Minute)
+			if strings.HasSuffix(durStr, "m") {
+				if m, err := strconv.Atoi(strings.TrimSuffix(durStr, "m")); err == nil {
+					sendAt = time.Now().UTC().Add(time.Duration(m) * time.Minute)
+				}
+			} else if strings.HasSuffix(durStr, "h") {
+				if h, err := strconv.Atoi(strings.TrimSuffix(durStr, "h")); err == nil {
+					sendAt = time.Now().UTC().Add(time.Duration(h) * time.Hour)
+				}
+			} else if t, err := time.Parse(time.RFC3339, durStr); err == nil {
+				sendAt = t
+			}
+
+			sMsg := domainBot.ScheduledMessage{
+				Phone:   targetPhone,
+				Message: msgText,
+				SendAt:  sendAt,
+				Status:  "pending",
+			}
+			res, err := repo.CreateScheduledMessage(ctx, sMsg)
+			if err == nil {
+				return fmt.Sprintf("⏰ <b>PESAN TERJADWAL BERHASIL DIBUAT!</b>\n\n• ID: <code>%s</code>\n• Tujuan: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>",
+					res.ID[:8], res.Phone, res.SendAt.Format("02 Jan 2006 15:04 WIB"), res.Message)
+			}
+		}
+		return "⚠️ <b>Format Tambah Jadwal Salah!</b>\nFormat: <code>/addschedule [nomor]|[10m/1h/ISO]|[pesan]</code>\nContoh: <code>/addschedule 6281234567890|30m|Halo bos</code>"
+	}
+
+	if strings.HasPrefix(lower, "/delschedule ") {
+		targetID := strings.TrimSpace(cmd[13:])
+		schedules, _ := repo.ListScheduledMessages(ctx, "")
+		foundID := targetID
+		for _, s := range schedules {
+			if strings.HasPrefix(s.ID, targetID) {
+				foundID = s.ID
+				break
+			}
+		}
+		if err := repo.DeleteScheduledMessage(ctx, foundID); err == nil {
+			return fmt.Sprintf("🗑️ <b>JADWAL ID %s BERHASIL DIHAPUS!</b>", foundID[:8])
+		}
+		return "⚠️ Gagal menghapus jadwal. ID tidak ditemukan."
+	}
+
+	// ── 4. MUTE KONTAK WA CRUD ──
+	if lower == "/listmuted" {
+		if len(cfg.BlockedNumbers) == 0 {
+			return "🟢 <b>Tidak ada kontak yang di-mute.</b> Semua kontak WA dapat mengakses AI."
+		}
+		out := fmt.Sprintf("🚫 <b>DAFTAR KONTAK WA TER-MUTE (%d KONTAK):</b>\n\n", len(cfg.BlockedNumbers))
+		for i, b := range cfg.BlockedNumbers {
+			parts := strings.SplitN(b, "|", 2)
+			phone := parts[0]
+			durInfo := "Selamanya (Permanen)"
+			if len(parts) == 2 {
+				durInfo = "s/d " + parts[1]
+			}
+			out += fmt.Sprintf("%d. <code>%s</code> — %s\n", i+1, phone, durInfo)
+		}
+		out += "\n💡 <i>Unmute: <code>/unmute [nomor]</code></i>"
+		return out
 	}
 
 	if strings.HasPrefix(lower, "/mute ") {
@@ -363,20 +615,18 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return fmt.Sprintf("✅ <b>AI DIAKTIFKAN KEMBALI UNTUK KONTAK:</b> <code>%s</code>", targetPhone)
 	}
 
-	if lower == "/listmuted" {
-		if len(cfg.BlockedNumbers) == 0 {
-			return "🟢 <b>Tidak ada kontak yang sedang di-mute.</b> Semua kontak WA dapat mengakses AI Assistant."
+	// ── 5. CUSTOM PROMPTS PER NOMOR CRUD ──
+	if lower == "/listprompts" {
+		if len(cfg.CustomNumberPrompts) == 0 {
+			return "💖 <b>Belum ada Custom Prompting per-nomor.</b>\nFormat Tambah: <code>/setprompt [nomor] [prompt]</code>"
 		}
-		out := fmt.Sprintf("🚫 <b>DAFTAR KONTAK WA YANG DI-MUTE (%d KONTAK):</b>\n\n", len(cfg.BlockedNumbers))
-		for i, b := range cfg.BlockedNumbers {
-			parts := strings.SplitN(b, "|", 2)
-			phone := parts[0]
-			durInfo := "Selamanya (Permanen)"
-			if len(parts) == 2 {
-				durInfo = "s/d " + parts[1]
-			}
-			out += fmt.Sprintf("%d. <code>%s</code> — %s\n", i+1, phone, durInfo)
+		out := fmt.Sprintf("💖 <b>DAFTAR CUSTOM PROMPT KONTAK (%d KONTAK):</b>\n\n", len(cfg.CustomNumberPrompts))
+		i := 1
+		for phone, p := range cfg.CustomNumberPrompts {
+			out += fmt.Sprintf("<b>%d. <code>%s</code></b>\nPrompt: <i>%s</i>\n\n", i, phone, p)
+			i++
 		}
+		out += "💡 <i>Hapus: <code>/delprompt [nomor]</code></i>"
 		return out
 	}
 
@@ -400,7 +650,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			delete(cfg.CustomNumberPrompts, targetPhone)
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
 		}
-		return fmt.Sprintf("🗑️ <b>PROMPT KHUSUS UNTUK %s BERHASIL DIHAPUS.</b> Kembali memakai prompt global.", targetPhone)
+		return fmt.Sprintf("🗑️ <b>PROMPT KHUSUS UNTUK %s BERHASIL DIHAPUS.</b>", targetPhone)
 	}
 
 	if strings.HasPrefix(lower, "/setknowledge ") {
@@ -408,16 +658,6 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		cfg.KnowledgeBase = newKnowledge
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
 		return "📚 <b>BASIS PENGETAHUAN / DATA TOKO BERHASIL DIPERBARUI!</b>"
-	}
-
-	if strings.HasPrefix(lower, "/setcooldown ") {
-		msStr := strings.TrimSpace(cmd[13:])
-		if ms, err := strconv.Atoi(msStr); err == nil && ms >= 1000 {
-			cfg.CooldownMs = ms
-			_, _ = repo.UpsertAIConfig(ctx, *cfg)
-			return fmt.Sprintf("⏱️ <b>COOLDOWN RESPONSE DIUBAH KE:</b> <code>%d ms</code>", ms)
-		}
-		return "⚠️ Format cooldown salah. Contoh: <code>/setcooldown 3000</code>"
 	}
 
 	if strings.HasPrefix(lower, "/setmodel ") {

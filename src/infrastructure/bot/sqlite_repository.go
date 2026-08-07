@@ -99,6 +99,15 @@ func (r *SQLiteRepository) EnsureSchema(ctx context.Context) error {
 			rule_id TEXT NOT NULL DEFAULT '',
 			error TEXT NOT NULL DEFAULT ''
 		);`,
+		`CREATE TABLE IF NOT EXISTS bot_scheduled_messages (
+			id TEXT PRIMARY KEY,
+			device_id TEXT NOT NULL DEFAULT '',
+			phone TEXT NOT NULL,
+			message TEXT NOT NULL,
+			send_at DATETIME NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
 	}
 
 	for _, stmt := range stmts {
@@ -474,4 +483,49 @@ func stripJID(jid string) string {
 		return jid[:idx]
 	}
 	return jid
+}
+
+func (r *SQLiteRepository) CreateScheduledMessage(ctx context.Context, msg domainBot.ScheduledMessage) (domainBot.ScheduledMessage, error) {
+	if msg.ID == "" {
+		msg.ID = uuid.New().String()
+	}
+	msg.CreatedAt = time.Now().UTC()
+	if msg.Status == "" {
+		msg.Status = "pending"
+	}
+	q := `INSERT INTO bot_scheduled_messages (id, device_id, phone, message, send_at, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.ExecContext(ctx, q, msg.ID, msg.DeviceID, msg.Phone, msg.Message, msg.SendAt, msg.Status, msg.CreatedAt)
+	return msg, err
+}
+
+func (r *SQLiteRepository) ListScheduledMessages(ctx context.Context, deviceID string) ([]domainBot.ScheduledMessage, error) {
+	q := `SELECT id, device_id, phone, message, send_at, status, created_at
+		FROM bot_scheduled_messages
+		ORDER BY send_at ASC`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domainBot.ScheduledMessage
+	for rows.Next() {
+		var m domainBot.ScheduledMessage
+		if err := rows.Scan(&m.ID, &m.DeviceID, &m.Phone, &m.Message, &m.SendAt, &m.Status, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, m)
+	}
+	return list, nil
+}
+
+func (r *SQLiteRepository) DeleteScheduledMessage(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM bot_scheduled_messages WHERE id = ?`, id)
+	return err
+}
+
+func (r *SQLiteRepository) MarkScheduledMessageSent(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE bot_scheduled_messages SET status = 'sent' WHERE id = ?`, id)
+	return err
 }

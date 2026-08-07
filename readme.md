@@ -76,6 +76,7 @@ Download:
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yaml](./docs/openapi.yaml) for more details
+- **Telegram Master Admin Bot & One-Click VPS Deploy** - Control AI engine, API keys, Auto-reply rules & scheduled messages via Telegram bot (`@gowasi_bot`), see [docs/TELEGRAM_ADMIN_BOT.md](./docs/TELEGRAM_ADMIN_BOT.md)
 - **MCP (Model Context Protocol) Server Support** - Integrate with AI agents and tools using standardized protocol
 - Mention someone
   - `@phoneNumber`

@@ -56,6 +56,13 @@ type tgUpdate struct {
 	} `json:"callback_query"`
 }
 
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
 // StartTelegramWorker launches a long-polling background worker for Telegram Admin Bot with Contextual Sub-Menus & In-Place Editing
 func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository, sendUc domainSend.ISendUsecase) {
 	go func() {
@@ -498,21 +505,44 @@ func getRulesSubMenuKeyboard(rules []domainBot.AutoReplyRule) InlineKeyboardMark
 	return InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
-func getSchedulesSubMenuKeyboard() InlineKeyboardMarkup {
-	return InlineKeyboardMarkup{
-		InlineKeyboard: [][]InlineKeyboardButton{
-			{
-				{Text: "🔄 Refresh Jadwal", CallbackData: "/listschedules"},
-				{Text: "➕ Buat Jadwal Baru", CallbackData: "/help_addschedule"},
-			},
-			{
-				{Text: "🗑️ Hapus Jadwal", CallbackData: "/help_delschedule"},
-			},
-			{
-				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
-			},
-		},
+func getSchedulesSubMenuKeyboard(schedules []domainBot.ScheduledMessage) InlineKeyboardMarkup {
+	var rows [][]InlineKeyboardButton
+
+	if len(schedules) > 0 {
+		var schedRow []InlineKeyboardButton
+		for i, s := range schedules {
+			statusIcon := "⏳"
+			if s.Status == "sent" {
+				statusIcon = "🟢"
+			}
+			btn := InlineKeyboardButton{
+				Text:         fmt.Sprintf("%s Jadwal #%d", statusIcon, i+1),
+				CallbackData: fmt.Sprintf("/viewschedule %d", i+1),
+			}
+			delBtn := InlineKeyboardButton{
+				Text:         fmt.Sprintf("🗑️ Hapus %d", i+1),
+				CallbackData: fmt.Sprintf("/delschedule %d", i+1),
+			}
+			schedRow = append(schedRow, btn, delBtn)
+			if len(schedRow) == 2 {
+				rows = append(rows, schedRow)
+				schedRow = nil
+			}
+		}
+		if len(schedRow) > 0 {
+			rows = append(rows, schedRow)
+		}
 	}
+
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔄 Refresh Jadwal", CallbackData: "/listschedules"},
+		{Text: "➕ Buat Jadwal Baru", CallbackData: "/help_addschedule"},
+	})
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+	})
+
+	return InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 func getMutedSubMenuKeyboard() InlineKeyboardMarkup {
@@ -665,8 +695,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 	}
 
-	if strings.HasPrefix(lower, "/delkey ") {
-		target := strings.TrimSpace(cmd[8:])
+	if strings.HasPrefix(lower, "/delkey") {
+		target := strings.TrimSpace(cmd[7:])
 		keys := parseGroqKeys(cfg.APIKey)
 		var newKeys []string
 		idx, err := strconv.Atoi(target)
@@ -734,7 +764,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 				"• Trigger Type: <code>%s</code>\n"+
 				"• Trigger Value: <code>%s</code>\n"+
 				"• Respon Text: <i>%s</i>",
-				idx, r.Name, idx, r.ID[:8], statusBadge, r.TriggerType, r.TriggerValue, r.ResponseText)
+				idx, r.Name, idx, shortID(r.ID), statusBadge, r.TriggerType, r.TriggerValue, r.ResponseText)
 			return out, getRulesSubMenuKeyboard(rules)
 		}
 	}
@@ -796,30 +826,53 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 		}
 		freshRules, _ := repo.ListRules(ctx, "")
-		return "⚠️ Gagal menghapus rule. ID tidak ditemukan.", getRulesSubMenuKeyboard(freshRules)
+		return "⚠️ Gagal menghapus rule. ID/Indeks tidak ditemukan.", getRulesSubMenuKeyboard(freshRules)
 	}
 
 	// ── 3. PESAN TERJADWAL SUB-MENU & CRUD ──
 	if lower == "/listschedules" {
 		list, err := repo.ListScheduledMessages(ctx, "")
 		if err != nil || len(list) == 0 {
-			return "⏰ <b>MANAJEMEN PESAN TERJADWAL WA</b>\n\n⚠️ <b>Belum ada Pesan Terjadwal WA.</b>\nKlik tombol <b>➕ Buat Jadwal Baru</b> di bawah ini.", getSchedulesSubMenuKeyboard()
+			return "⏰ <b>MANAJEMEN PESAN TERJADWAL WA</b>\n\n⚠️ <b>Belum ada Pesan Terjadwal WA.</b>\nKlik tombol <b>➕ Buat Jadwal Baru</b> di bawah ini.", getSchedulesSubMenuKeyboard(nil)
 		}
 		out := fmt.Sprintf("⏰ <b>DAFTAR PESAN TERJADWAL (%d MESSAGES):</b>\n\n", len(list))
 		for i, m := range list {
-			out += fmt.Sprintf("<b>%d. ID: <code>%s</code></b> — Status: <b>%s</b>\n• WA: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>\n\n",
-				i+1, m.ID[:8], m.Status, m.Phone, m.SendAt.Format("02 Jan 2006 15:04 WIB"), m.Message)
+			out += fmt.Sprintf("<b>%d. Jadwal #%d</b> (ID: <code>%s</code>) — Status: <b>%s</b>\n• WA: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>\n\n",
+				i+1, i+1, shortID(m.ID), m.Status, m.Phone, m.SendAt.Format("02 Jan 2006 15:04 WIB"), m.Message)
 		}
 		out += "💡 <i>Salin cepat: <code>/addschedule </code> | <code>/delschedule </code></i>"
-		return out, getSchedulesSubMenuKeyboard()
+		return out, getSchedulesSubMenuKeyboard(list)
 	}
 
 	if lower == "/help_addschedule" {
-		return "⏰ <b>CARA MEMBUAT PESAN TERJADWAL WA:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/addschedule </code>\n\nFormat: <code>/addschedule [nomor]|[durasi/waktu]|[pesan]</code>\nContoh: <code>/addschedule 6281234567890|30m|Ingatkan besok meeting</code>", getSchedulesSubMenuKeyboard()
+		list, _ := repo.ListScheduledMessages(ctx, "")
+		return "⏰ <b>CARA MEMBUAT PESAN TERJADWAL WA:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/addschedule </code>\n\nFormat: <code>/addschedule [nomor]|[durasi/waktu]|[pesan]</code>\nContoh: <code>/addschedule 6281234567890|30m|Ingatkan besok meeting</code>", getSchedulesSubMenuKeyboard(list)
 	}
 
 	if lower == "/help_delschedule" {
-		return "🗑️ <b>CARA MENGHAPUS PESAN TERJADWAL:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/delschedule </code>", getSchedulesSubMenuKeyboard()
+		list, _ := repo.ListScheduledMessages(ctx, "")
+		return "🗑️ <b>CARA MENGHAPUS PESAN TERJADWAL:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/delschedule </code>", getSchedulesSubMenuKeyboard(list)
+	}
+
+	if strings.HasPrefix(lower, "/viewschedule") {
+		target := strings.TrimSpace(cmd[13:])
+		schedules, _ := repo.ListScheduledMessages(ctx, "")
+		idx, err := strconv.Atoi(target)
+		if err == nil && idx >= 1 && idx <= len(schedules) {
+			s := schedules[idx-1]
+			statusIcon := "⏳ PENDING"
+			if s.Status == "sent" {
+				statusIcon = "🟢 TERKIRIM"
+			}
+			out := fmt.Sprintf("⏰ <b>DETAIL PESAN TERJADWAL #%d</b>\n\n"+
+				"• ID: <code>%d</code> (UUID: <code>%s</code>)\n"+
+				"• Status: <b>%s</b>\n"+
+				"• WA Tujuan: <code>%s</code>\n"+
+				"• Waktu Kirim: <code>%s</code>\n"+
+				"• Pesan: <i>%s</i>",
+				idx, idx, shortID(s.ID), statusIcon, s.Phone, s.SendAt.Format("02 Jan 2006 15:04 WIB"), s.Message)
+			return out, getSchedulesSubMenuKeyboard(schedules)
+		}
 	}
 
 	if strings.HasPrefix(lower, "/addschedule ") {
@@ -850,27 +903,43 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			res, err := repo.CreateScheduledMessage(ctx, sMsg)
 			if err == nil {
-				return fmt.Sprintf("⏰ <b>PESAN TERJADWAL BERHASIL DIBUAT!</b>\n\n• ID: <code>%s</code>\n• Tujuan: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>",
-					res.ID[:8], res.Phone, res.SendAt.Format("02 Jan 2006 15:04 WIB"), res.Message), getSchedulesSubMenuKeyboard()
+				freshScheds, _ := repo.ListScheduledMessages(ctx, "")
+				return fmt.Sprintf("⏰ <b>PESAN TERJADWAL BERHASIL DIBUAT!</b>\n\n• ID: <code>%d</code>\n• Tujuan: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>",
+					len(freshScheds), res.Phone, res.SendAt.Format("02 Jan 2006 15:04 WIB"), res.Message), getSchedulesSubMenuKeyboard(freshScheds)
 			}
 		}
-		return "⚠️ <b>Format Tambah Jadwal Salah!</b>\nFormat: <code>/addschedule </code> [nomor]|[10m/1h/ISO]|[pesan]", getSchedulesSubMenuKeyboard()
+		list, _ := repo.ListScheduledMessages(ctx, "")
+		return "⚠️ <b>Format Tambah Jadwal Salah!</b>\nFormat: <code>/addschedule </code> [nomor]|[10m/1h/ISO]|[pesan]", getSchedulesSubMenuKeyboard(list)
 	}
 
-	if strings.HasPrefix(lower, "/delschedule ") {
-		targetID := strings.TrimSpace(cmd[13:])
+	if strings.HasPrefix(lower, "/delschedule") {
+		target := strings.TrimSpace(cmd[12:])
 		schedules, _ := repo.ListScheduledMessages(ctx, "")
-		foundID := targetID
-		for _, s := range schedules {
-			if strings.HasPrefix(s.ID, targetID) {
-				foundID = s.ID
-				break
+		if len(schedules) == 0 {
+			return "⚠️ <b>Belum ada pesan terjadwal tersimpan.</b>", getSchedulesSubMenuKeyboard(nil)
+		}
+
+		var targetID string
+		idx, err := strconv.Atoi(target)
+		if err == nil && idx >= 1 && idx <= len(schedules) {
+			targetID = schedules[idx-1].ID
+		} else {
+			for _, s := range schedules {
+				if strings.HasPrefix(s.ID, target) {
+					targetID = s.ID
+					break
+				}
 			}
 		}
-		if err := repo.DeleteScheduledMessage(ctx, foundID); err == nil {
-			return fmt.Sprintf("🗑️ <b>JADWAL ID %s BERHASIL DIHAPUS!</b>", foundID[:8]), getSchedulesSubMenuKeyboard()
+
+		if targetID != "" {
+			if err := repo.DeleteScheduledMessage(ctx, targetID); err == nil {
+				freshScheds, _ := repo.ListScheduledMessages(ctx, "")
+				return fmt.Sprintf("🗑️ <b>JADWAL #%s BERHASIL DIHAPUS!</b>", target), getSchedulesSubMenuKeyboard(freshScheds)
+			}
 		}
-		return "⚠️ Gagal menghapus jadwal. ID tidak ditemukan.", getSchedulesSubMenuKeyboard()
+		freshScheds, _ := repo.ListScheduledMessages(ctx, "")
+		return "⚠️ Gagal menghapus jadwal. ID/Indeks tidak ditemukan.", getSchedulesSubMenuKeyboard(freshScheds)
 	}
 
 	// ── 4. MUTE KONTAK SUB-MENU & CRUD ──

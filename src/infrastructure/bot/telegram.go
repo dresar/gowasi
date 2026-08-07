@@ -467,7 +467,7 @@ func getKeysSubMenuKeyboard(keysCount int) InlineKeyboardMarkup {
 
 func getRulesSubMenuKeyboard(rules []domainBot.AutoReplyRule, page int) InlineKeyboardMarkup {
 	var rows [][]InlineKeyboardButton
-	const pageSize = 8
+	const pageSize = 10
 
 	totalPages := 1
 	if len(rules) > 0 {
@@ -486,37 +486,47 @@ func getRulesSubMenuKeyboard(rules []domainBot.AutoReplyRule, page int) InlineKe
 		end = len(rules)
 	}
 
+	// Show rules as 2-column buttons (no delete button in list)
 	if len(rules) > 0 {
+		var rowBuf []InlineKeyboardButton
 		for i := start; i < end; i++ {
 			r := rules[i]
 			statusIcon := "🟢"
 			if !r.Enabled {
 				statusIcon = "🔴"
 			}
-			btnRule := InlineKeyboardButton{
+			btn := InlineKeyboardButton{
 				Text:         fmt.Sprintf("%s #%d %s", statusIcon, i+1, r.Name),
 				CallbackData: fmt.Sprintf("/viewrule %d", i+1),
 			}
-			delBtn := InlineKeyboardButton{
-				Text:         fmt.Sprintf("🗑️ Hapus #%d", i+1),
-				CallbackData: fmt.Sprintf("/delrule %d", i+1),
+			rowBuf = append(rowBuf, btn)
+			if len(rowBuf) == 2 {
+				rows = append(rows, rowBuf)
+				rowBuf = nil
 			}
-			rows = append(rows, []InlineKeyboardButton{btnRule})
-			rows = append(rows, []InlineKeyboardButton{delBtn})
+		}
+		if len(rowBuf) > 0 {
+			rows = append(rows, rowBuf)
 		}
 	}
 
-	// Pagination nav
+	// Pagination nav row
 	var navRow []InlineKeyboardButton
 	if page > 1 {
 		navRow = append(navRow, InlineKeyboardButton{
-			Text:         fmt.Sprintf("◀ Hal %d", page-1),
+			Text:         fmt.Sprintf("◀️ Hal %d", page-1),
 			CallbackData: fmt.Sprintf("/listrules %d", page-1),
+		})
+	}
+	if totalPages > 1 {
+		navRow = append(navRow, InlineKeyboardButton{
+			Text:         fmt.Sprintf("📄 %d/%d", page, totalPages),
+			CallbackData: fmt.Sprintf("/listrules %d", page),
 		})
 	}
 	if page < totalPages {
 		navRow = append(navRow, InlineKeyboardButton{
-			Text:         fmt.Sprintf("Hal %d ▶", page+1),
+			Text:         fmt.Sprintf("Hal %d ▶️", page+1),
 			CallbackData: fmt.Sprintf("/listrules %d", page+1),
 		})
 	}
@@ -525,11 +535,12 @@ func getRulesSubMenuKeyboard(rules []domainBot.AutoReplyRule, page int) InlineKe
 	}
 
 	rows = append(rows, []InlineKeyboardButton{
-		{Text: "🔄 Refresh Rules", CallbackData: "/listrules 1"},
-		{Text: "➕ Buat Rule Baru", CallbackData: "/help_addrule"},
+		{Text: "🔄 Refresh", CallbackData: "/listrules 1"},
+		{Text: "➕ Tambah Rule", CallbackData: "/help_addrule"},
 	})
 	rows = append(rows, []InlineKeyboardButton{
-		{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+		{Text: "🗑️ Hapus Rule", CallbackData: "/help_delrule"},
+		{Text: "🔙 Menu Utama", CallbackData: "/start"},
 	})
 
 	return InlineKeyboardMarkup{InlineKeyboard: rows}
@@ -774,26 +785,44 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 		rules, err := repo.ListRules(ctx, "")
 		if err != nil || len(rules) == 0 {
-			return "📜 <b>MANAJEMEN AUTO-REPLY RULES</b>\n\n⚠️ <b>Belum ada Aturan Balas Otomatis.</b>\nKlik tombol <b>➕ Buat Rule Baru</b> di bawah ini.", getRulesSubMenuKeyboard(nil, 1)
+			return "📜 <b>MANAJEMEN AUTO-REPLY RULES</b>\n\n" +
+				"<i>Belum ada aturan balas otomatis.</i>\n\n" +
+				"💡 Klik <b>➕ Tambah Rule</b> untuk membuat aturan baru.", getRulesSubMenuKeyboard(nil, 1)
 		}
-		const pageSize = 8
+		const pageSize = 10
 		totalPages := (len(rules) + pageSize - 1) / pageSize
+		if pageNum > totalPages {
+			pageNum = totalPages
+		}
 		start := (pageNum - 1) * pageSize
 		end := start + pageSize
 		if end > len(rules) {
 			end = len(rules)
 		}
-		out := fmt.Sprintf("📜 <b>ATURAN BALAS OTOMATIS (%d Rules) — Hal %d/%d:</b>\n\n", len(rules), pageNum, totalPages)
+		out := fmt.Sprintf("📜 <b>AUTO-REPLY RULES</b> — <code>%d Rules</code> | Hal <b>%d</b>/<b>%d</b>\n", len(rules), pageNum, totalPages)
+		out += "<b>────────────────────</b>\n"
 		for i := start; i < end; i++ {
 			r := rules[i]
 			statusIcon := "🟢"
 			if !r.Enabled {
 				statusIcon = "🔴"
 			}
-			out += fmt.Sprintf("%s <b>%d. %s</b> (ID: <code>%d</code>)\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>\n\n",
-				statusIcon, i+1, r.Name, i+1, r.TriggerValue, r.TriggerType, r.ResponseText)
+			trigType := string(r.TriggerType)
+			switch r.TriggerType {
+			case domainBot.TriggerContains:
+				trigType = "mengandung"
+			case domainBot.TriggerExact:
+				trigType = "persis"
+			case domainBot.TriggerStartsWith:
+				trigType = "diawali"
+			case domainBot.TriggerEndsWith:
+				trigType = "diakhiri"
+			}
+			out += fmt.Sprintf("%s <b>%d.</b> <b>%s</b>\n   └ <code>%s</code> <i>(%s)</i>\n",
+				statusIcon, i+1, r.Name, r.TriggerValue, trigType)
 		}
-		out += "💡 <i>Salin cepat: <code>/addrule </code> | <code>/delrule </code></i>"
+		out += "<b>────────────────────</b>\n"
+		out += "<i>Ketuk rule untuk melihat detail &amp; hapus.</i>"
 		return out, getRulesSubMenuKeyboard(rules, pageNum)
 	}
 

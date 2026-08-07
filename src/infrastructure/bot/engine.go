@@ -108,85 +108,91 @@ func ProcessMessage(
 
 	phone := stripJID(from)
 
+	// Check if this contact has a custom persona prompt (e.g. pacar virtual)
+	customPromptForContact := getCustomPrompt(phone, aiCfg.CustomNumberPrompts)
+
 	// ── 1. Auto-reply Rules ──────────────────────────────────────────────────
-	for _, rule := range rules {
-		if !rule.Enabled {
-			continue
-		}
-		if isGroup && rule.OnlyPrivate {
-			continue
-		}
-		if !isGroup && rule.OnlyGroups {
-			continue
-		}
-		if !numberAllowed(phone, from, aiCfg.AutoReplyAllowedNumbers, aiCfg.AutoReplyBlockedNumbers) {
-			continue
-		}
-		if !numberAllowed(phone, from, rule.AllowedNumbers, rule.BlockedNumbers) {
-			continue
-		}
-		if !matchesTrigger(text, rule.TriggerType, rule.TriggerValue, rule.CaseSensitive) {
-			continue
-		}
-
-		if !checkAndSetCooldown(from, 1500) {
-			logrus.Debugf("[BOT] auto-reply cooldown active for %s", from)
-			return
-		}
-
-		logrus.Infof("[BOT] auto-reply rule '%s' matched for %s (text: %q)", rule.Name, from, text)
-
-		responses := []string{}
-		if rule.ResponseText != "" {
-			responses = append(responses, rule.ResponseText)
-		}
-		responses = append(responses, rule.AdditionalTexts...)
-
-		// Trigger typing presence indicator ("mengetik...")
-		sendTypingPresence(client, from, types.ChatPresenceComposing)
-
-		for i, respText := range responses {
-			delay := time.Duration(rule.ResponseDelayMs)*time.Millisecond + time.Duration(i)*800*time.Millisecond
-			if delay < 800*time.Millisecond {
-				delay = 800 * time.Millisecond
+	// Skip CS auto-reply rules if contact has a custom persona prompt (so persona AI handles all messages in character)
+	if customPromptForContact == "" {
+		for _, rule := range rules {
+			if !rule.Enabled {
+				continue
 			}
-			capturedText := respText
-			capturedRule := rule
-			isLast := i == len(responses)-1
-			go func() {
-				time.Sleep(delay)
-				if err := sendTextMessage(client, from, capturedText); err != nil {
-					logrus.Errorf("[BOT] send auto-reply failed to %s: %v", from, err)
-					sendTypingPresence(client, from, types.ChatPresencePaused)
+			if isGroup && rule.OnlyPrivate {
+				continue
+			}
+			if !isGroup && rule.OnlyGroups {
+				continue
+			}
+			if !numberAllowed(phone, from, aiCfg.AutoReplyAllowedNumbers, aiCfg.AutoReplyBlockedNumbers) {
+				continue
+			}
+			if !numberAllowed(phone, from, rule.AllowedNumbers, rule.BlockedNumbers) {
+				continue
+			}
+			if !matchesTrigger(text, rule.TriggerType, rule.TriggerValue, rule.CaseSensitive) {
+				continue
+			}
+
+			if !checkAndSetCooldown(from, 1500) {
+				logrus.Debugf("[BOT] auto-reply cooldown active for %s", from)
+				return
+			}
+
+			logrus.Infof("[BOT] auto-reply rule '%s' matched for %s (text: %q)", rule.Name, from, text)
+
+			responses := []string{}
+			if rule.ResponseText != "" {
+				responses = append(responses, rule.ResponseText)
+			}
+			responses = append(responses, rule.AdditionalTexts...)
+
+			// Trigger typing presence indicator ("mengetik...")
+			sendTypingPresence(client, from, types.ChatPresenceComposing)
+
+			for i, respText := range responses {
+				delay := time.Duration(rule.ResponseDelayMs)*time.Millisecond + time.Duration(i)*800*time.Millisecond
+				if delay < 800*time.Millisecond {
+					delay = 800 * time.Millisecond
+				}
+				capturedText := respText
+				capturedRule := rule
+				isLast := i == len(responses)-1
+				go func() {
+					time.Sleep(delay)
+					if err := sendTextMessage(client, from, capturedText); err != nil {
+						logrus.Errorf("[BOT] send auto-reply failed to %s: %v", from, err)
+						sendTypingPresence(client, from, types.ChatPresencePaused)
+						_ = repo.AddLog(ctx, domainBot.ActivityLog{
+							DeviceID: deviceID,
+							Type:     "auto_reply",
+							Phone:    from,
+							Message:  capturedText,
+							Status:   "failed",
+							RuleID:   capturedRule.ID,
+							Error:    err.Error(),
+						})
+						return
+					}
+					if isLast {
+						sendTypingPresence(client, from, types.ChatPresencePaused)
+					}
+					logrus.Infof("[BOT] sent auto-reply to %s: %q", from, capturedText)
+					if i == 0 {
+						_ = repo.IncrementRuleStat(ctx, capturedRule.ID)
+					}
 					_ = repo.AddLog(ctx, domainBot.ActivityLog{
 						DeviceID: deviceID,
 						Type:     "auto_reply",
 						Phone:    from,
 						Message:  capturedText,
-						Status:   "failed",
+						Status:   "success",
 						RuleID:   capturedRule.ID,
-						Error:    err.Error(),
 					})
-					return
-				}
-				if isLast {
-					sendTypingPresence(client, from, types.ChatPresencePaused)
-				}
-				logrus.Infof("[BOT] sent auto-reply to %s: %q", from, capturedText)
-				if i == 0 {
-					_ = repo.IncrementRuleStat(ctx, capturedRule.ID)
-				}
-				_ = repo.AddLog(ctx, domainBot.ActivityLog{
-					DeviceID: deviceID,
-					Type:     "auto_reply",
-					Phone:    from,
-					Message:  capturedText,
-					Status:   "success",
-					RuleID:   capturedRule.ID,
-				})
-			}()
+				}()
+			}
+			return // STOP – first matching rule wins
 		}
-		return // STOP – first matching rule wins
 	}
 
 	// ── 2. AI Fallback (Runs for ALL chats when no Auto-Reply rule matches) ──
@@ -255,6 +261,39 @@ func ProcessMessage(
 			Status:   "success",
 		})
 	}()
+}
+
+func getCustomPrompt(phone string, customPrompts map[string]string) string {
+	if customPrompts == nil {
+		return ""
+	}
+	clean := stripJID(phone)
+	for _, p := range []string{clean, phone} {
+		if val, ok := customPrompts[p]; ok && strings.TrimSpace(val) != "" {
+			return strings.TrimSpace(val)
+		}
+	}
+	for storedPhone, val := range customPrompts {
+		storedClean := stripJID(storedPhone)
+		if storedClean == "" || strings.TrimSpace(val) == "" {
+			continue
+		}
+		if strings.Contains(clean, storedClean) || strings.Contains(storedClean, clean) {
+			return strings.TrimSpace(val)
+		}
+		const minSuffix = 9
+		if len(storedClean) >= minSuffix && len(clean) >= minSuffix {
+			sfxLen := len(storedClean)
+			if sfxLen > len(clean) {
+				sfxLen = len(clean)
+			}
+			if strings.HasSuffix(clean, storedClean[len(storedClean)-sfxLen:]) ||
+				strings.HasSuffix(storedClean, clean[len(clean)-sfxLen:]) {
+				return strings.TrimSpace(val)
+			}
+		}
+	}
+	return ""
 }
 
 func sendTypingPresence(client *whatsmeow.Client, to string, state types.ChatPresence) {
@@ -389,7 +428,7 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 	days := []string{"Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"}
 	months := []string{"", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"}
 
-	timeContext := fmt.Sprintf("[WAKTU & SYSTEM REAL-TIME]: %s, %d %s %d Pukul %02d:%02d WIB",
+	timeContext := fmt.Sprintf("[WAKTU REAL-TIME]: %s, %d %s %d Pukul %02d:%02d WIB",
 		days[now.Weekday()], now.Day(), months[now.Month()], now.Year(), now.Hour(), now.Minute())
 
 	systemPrompt := cfg.SystemPrompt
@@ -397,48 +436,13 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 	// ── Normalize phone for custom prompt lookup ──
 	normalizedPhone := stripJID(senderPhone)
 
-	// ── 1. Custom Prompt lookup (checked FIRST) ──
-	customPromptFound := ""
-	if cfg.CustomNumberPrompts != nil {
-		// Strategy 1: exact match
-		for _, tryPhone := range []string{normalizedPhone, senderPhone} {
-			if p, ok := cfg.CustomNumberPrompts[tryPhone]; ok && strings.TrimSpace(p) != "" {
-				customPromptFound = strings.TrimSpace(p)
-				break
-			}
-		}
-		// Strategy 2: substring / suffix match (handles missing country code digits)
-		if customPromptFound == "" {
-			for storedPhone, p := range cfg.CustomNumberPrompts {
-				storedClean := stripJID(storedPhone)
-				if storedClean == "" || strings.TrimSpace(p) == "" {
-					continue
-				}
-				if strings.Contains(normalizedPhone, storedClean) || strings.Contains(storedClean, normalizedPhone) {
-					customPromptFound = strings.TrimSpace(p)
-					break
-				}
-				// Suffix match: last 9+ digits — handles "62392115909" vs "6282392115909"
-				const minSuffix = 9
-				if len(storedClean) >= minSuffix && len(normalizedPhone) >= minSuffix {
-					sfxLen := len(storedClean)
-					if sfxLen > len(normalizedPhone) {
-						sfxLen = len(normalizedPhone)
-					}
-					if strings.HasSuffix(normalizedPhone, storedClean[len(storedClean)-sfxLen:]) ||
-						strings.HasSuffix(storedClean, normalizedPhone[len(normalizedPhone)-sfxLen:]) {
-						customPromptFound = strings.TrimSpace(p)
-						break
-					}
-				}
-			}
-		}
-	}
+	// ── 1. Custom Prompt lookup ──
+	customPromptFound := getCustomPrompt(normalizedPhone, cfg.CustomNumberPrompts)
 
 	if customPromptFound != "" {
 		// Custom persona explicitly set → use pure custom prompt without adding robotic skills
 		logrus.Infof("[BOT] Custom prompt applied for %s", normalizedPhone)
-		systemPrompt = fmt.Sprintf("[INSTRUKSIPERSONA KHUSUS KONTAK %s]:\n%s\n\n"+
+		systemPrompt = fmt.Sprintf("[INSTRUKSI PERSONA KHUSUS KONTAK %s]:\n%s\n\n"+
 			"PENTING: Kamu WAJIB memerankan karakter di atas secara PENUH dan KONSISTEN. "+
 			"Jangan pernah keluar dari peran ini, jangan mengaku sebagai AI/bot/asisten, "+
 			"dan selalu berikan balasan sesuai riwayat chat serta karakter yang diperintahkan.",
@@ -451,7 +455,7 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 
 	systemPrompt = timeContext + "\n\n" + systemPrompt
 
-	if cfg.KnowledgeBase != "" {
+	if cfg.KnowledgeBase != "" && customPromptFound == "" {
 		systemPrompt += "\n\n[BASIS PENGETAHUAN / DATA TOKO BISNIS]:\n" + cfg.KnowledgeBase
 	}
 
@@ -469,15 +473,20 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 		maxTokens = 800
 	}
 
+	temp := cfg.Temperature
+	if customPromptFound != "" {
+		temp = 0.88 // Optimal creativity & humor for custom personas
+	}
+
 	switch cfg.Provider {
 	case domainBot.AIProviderGroq, "gemini":
-		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, history, maxTokens, cfg.Temperature)
+		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, history, maxTokens, temp)
 	case domainBot.AIProviderCustom:
-		return callCustom(ctx, cfg.APIKey, cfg.CustomURL, cfg.Model, systemPrompt, userMessage, history, maxTokens, cfg.Temperature)
+		return callCustom(ctx, cfg.APIKey, cfg.CustomURL, cfg.Model, systemPrompt, userMessage, history, maxTokens, temp)
 	case domainBot.AIProviderOllama:
 		return callOllama(ctx, cfg.OllamaURL, cfg.Model, systemPrompt, userMessage, history)
 	default:
-		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, history, maxTokens, cfg.Temperature)
+		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, history, maxTokens, temp)
 	}
 }
 

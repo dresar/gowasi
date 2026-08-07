@@ -741,7 +741,7 @@ func initApp() {
 		}
 		botRepo = bRepo
 		whatsapp.SetBotRepo(bRepo)
-		botrepo.StartTelegramWorker(ctx, bRepo)
+		botrepo.StartTelegramWorker(ctx, bRepo, sendUsecase)
 	}
 }
 

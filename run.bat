@@ -1,8 +1,17 @@
 @echo off
-title Go WhatsApp Web Multi-Device Server
+title Go WhatsApp Web Multi-Device Server (gowasi)
 echo ========================================================
-echo   Starting Go WhatsApp Web Server (http://localhost:3000)
+echo   Starting gowasi WhatsApp Web Server (http://localhost:3000)
 echo ========================================================
+cd /d "%~dp0"
+if exist ".git" (
+    echo 📦 Checking for updates from GitHub...
+    git pull origin main
+)
 cd /d "%~dp0src"
-"C:\Program Files\Go\bin\go.exe" run -tags purego . rest
+if exist "whatsapp.exe" (
+    .\whatsapp.exe rest
+) else (
+    go run -tags purego . rest
+)
 pause

@@ -14,6 +14,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainBot "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/bot"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/sirupsen/logrus"
 )
 
@@ -56,13 +57,13 @@ type tgUpdate struct {
 }
 
 // StartTelegramWorker launches a long-polling background worker for Telegram Admin Bot with Contextual Sub-Menus & In-Place Editing
-func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
+func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository, sendUc domainSend.ISendUsecase) {
 	go func() {
 		offset := 0
-		logrus.Info("[TELEGRAM_ADMIN] Telegram Admin Bot Worker started (In-Place Edit & 1-Tap Copy Mode)")
+		logrus.Info("[TELEGRAM_ADMIN] Telegram Admin Bot Worker started (In-Place Edit & Scheduled WA Sender Active)")
 
 		// Start background Scheduled Message Dispatcher Loop
-		go startScheduledMessageDispatcher(ctx, repo)
+		go startScheduledMessageDispatcher(ctx, repo, sendUc)
 
 		for {
 			select {
@@ -168,7 +169,7 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 	}()
 }
 
-func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRepository) {
+func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRepository, sendUc domainSend.ISendUsecase) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -205,13 +206,35 @@ func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRep
 
 			for _, s := range schedules {
 				if s.Status == "pending" && (s.SendAt.Before(now) || s.SendAt.Equal(now)) {
-					logrus.Infof("[SCHEDULED_MSG] Executing scheduled message ID: %s to %s", s.ID, s.Phone)
-					_ = repo.MarkScheduledMessageSent(ctx, s.ID)
+					logrus.Infof("[SCHEDULED_MSG] Executing scheduled message ID: %s to %s via WA", s.ID, s.Phone)
 
-					if adminChatID != "" {
-						chatID, _ := strconv.ParseInt(adminChatID, 10, 64)
-						notif := fmt.Sprintf("⏰ <b>PESAN TERJADWAL DIEKSEKUSI!</b>\n\n• WA: <code>%s</code>\n• Pesan: <i>%s</i>\n• Status: 🟢 Berhasil Terkirim", s.Phone, s.Message)
-						_ = sendTelegramHTML(botToken, chatID, notif, nil)
+					var sendErr error
+					if sendUc != nil {
+						req := domainSend.MessageRequest{
+							BaseRequest: domainSend.BaseRequest{
+								Phone: s.Phone,
+							},
+							Message: s.Message,
+						}
+						_, sendErr = sendUc.SendText(ctx, req)
+					}
+
+					if sendErr == nil {
+						_ = repo.MarkScheduledMessageSent(ctx, s.ID)
+						logrus.Infof("[SCHEDULED_MSG] Scheduled message ID %s to %s sent successfully!", s.ID, s.Phone)
+
+						if adminChatID != "" {
+							chatID, _ := strconv.ParseInt(adminChatID, 10, 64)
+							notif := fmt.Sprintf("⏰ <b>PESAN TERJADWAL TERKIRIM!</b>\n\n• WA Tujuan: <code>%s</code>\n• Pesan: <i>%s</i>\n• Status: 🟢 Berhasil Terkirim ke WhatsApp", s.Phone, s.Message)
+							_ = sendTelegramHTML(botToken, chatID, notif, nil)
+						}
+					} else {
+						logrus.Errorf("[SCHEDULED_MSG] Failed to send scheduled message ID %s to %s: %v", s.ID, s.Phone, sendErr)
+						if adminChatID != "" {
+							chatID, _ := strconv.ParseInt(adminChatID, 10, 64)
+							notif := fmt.Sprintf("⚠️ <b>PESAN TERJADWAL GAGAL TERKIRIM!</b>\n\n• WA Tujuan: <code>%s</code>\n• Pesan: <i>%s</i>\n• Error: <i>%v</i>", s.Phone, s.Message, sendErr)
+							_ = sendTelegramHTML(botToken, chatID, notif, nil)
+						}
 					}
 				}
 			}

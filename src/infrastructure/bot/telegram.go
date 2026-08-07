@@ -55,11 +55,11 @@ type tgUpdate struct {
 	} `json:"callback_query"`
 }
 
-// StartTelegramWorker launches a long-polling background worker for Telegram Admin Bot with Inline Keyboards & Full CRUD
+// StartTelegramWorker launches a long-polling background worker for Telegram Admin Bot with Contextual Sub-Menus
 func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 	go func() {
 		offset := 0
-		logrus.Info("[TELEGRAM_ADMIN] Telegram Admin Bot Worker started (Full CRUD Mode)")
+		logrus.Info("[TELEGRAM_ADMIN] Telegram Admin Bot Worker started (Contextual Sub-Menu Mode)")
 
 		// Start background Scheduled Message Dispatcher Loop
 		go startScheduledMessageDispatcher(ctx, repo)
@@ -125,8 +125,7 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 							continue
 						}
 
-						replyText := processTelegramAdminCommand(ctx, repo, cfg, cb.Data)
-						kb := getAdminInlineKeyboard()
+						replyText, kb := processTelegramAdminCommand(ctx, repo, cfg, cb.Data)
 						_ = sendTelegramHTML(botToken, chatID, replyText, &kb)
 						continue
 					}
@@ -150,14 +149,8 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 					}
 
 					text := u.Message.Text
-					replyText := processTelegramAdminCommand(ctx, repo, cfg, text)
-					kb := getAdminInlineKeyboard()
-
-					if strings.HasPrefix(text, "/") || text == "/start" || text == "/help" {
-						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, replyText, &kb)
-					} else {
-						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, replyText, nil)
-					}
+					replyText, kb := processTelegramAdminCommand(ctx, repo, cfg, text)
+					_ = sendTelegramHTML(botToken, u.Message.Chat.ID, replyText, &kb)
 				}
 			}
 		}
@@ -185,22 +178,28 @@ func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRep
 				botToken = strings.TrimSpace(cfg.TelegramBotToken)
 			}
 			if botToken == "" {
+				botToken = strings.TrimSpace(config.TelegramBotToken)
+			}
+			if botToken == "" {
 				botToken = strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 			}
+
 			adminChatID := ""
 			if cfg != nil {
 				adminChatID = strings.TrimSpace(cfg.TelegramAdminChatID)
 			}
+			if adminChatID == "" {
+				adminChatID = strings.TrimSpace(config.TelegramAdminChatID)
+			}
 
 			for _, s := range schedules {
 				if s.Status == "pending" && (s.SendAt.Before(now) || s.SendAt.Equal(now)) {
-					// Execute sending via WhatsApp
 					logrus.Infof("[SCHEDULED_MSG] Executing scheduled message ID: %s to %s", s.ID, s.Phone)
 					_ = repo.MarkScheduledMessageSent(ctx, s.ID)
 
 					if adminChatID != "" {
 						chatID, _ := strconv.ParseInt(adminChatID, 10, 64)
-						notif := fmt.Sprintf("⏰ <b>PESAN TERJADWAL DIEKSEKUSI!</b>\n\n• Tujuan WA: <code>%s</code>\n• Pesan: <i>%s</i>\n• Status: 🟢 Berhasil Terkirim", s.Phone, s.Message)
+						notif := fmt.Sprintf("⏰ <b>PESAN TERJADWAL DIEKSEKUSI!</b>\n\n• WA: <code>%s</code>\n• Pesan: <i>%s</i>\n• Status: 🟢 Berhasil Terkirim", s.Phone, s.Message)
 						_ = sendTelegramHTML(botToken, chatID, notif, nil)
 					}
 				}
@@ -214,23 +213,11 @@ func setTelegramMyCommands(botToken string) error {
 	cmds := []map[string]string{
 		{"command": "start", "description": "Tampilkan menu utama gowasi"},
 		{"command": "status", "description": "Cek status bot & AI Engine"},
-		{"command": "listrules", "description": "Lihat daftar Auto-Reply rules"},
-		{"command": "addrule", "description": "Tambah Auto-Reply rule baru"},
-		{"command": "delrule", "description": "Hapus Auto-Reply rule"},
-		{"command": "listschedules", "description": "Lihat daftar Pesan Terjadwal"},
-		{"command": "addschedule", "description": "Tambah Pesan Terjadwal WA"},
-		{"command": "delschedule", "description": "Hapus Pesan Terjadwal"},
-		{"command": "listkeys", "description": "Lihat daftar Groq API Keys"},
-		{"command": "addkey", "description": "Tambah Groq API Key baru"},
-		{"command": "delkey", "description": "Hapus Groq API Key"},
-		{"command": "listmuted", "description": "Lihat daftar kontak di-mute"},
-		{"command": "mute", "description": "Matikan AI untuk kontak tertentu"},
-		{"command": "unmute", "description": "Aktifkan kembali AI kontak"},
-		{"command": "listprompts", "description": "Lihat custom prompt per-nomor"},
-		{"command": "setprompt", "description": "Set custom prompt per-nomor"},
-		{"command": "delprompt", "description": "Hapus custom prompt per-nomor"},
-		{"command": "setknowledge", "description": "Set Data Toko / FAQ bisnis"},
-		{"command": "setmodel", "description": "Ubah model AI Groq"},
+		{"command": "listkeys", "description": "Menu Manajemen Groq API Keys"},
+		{"command": "listrules", "description": "Menu Auto-Reply Rules"},
+		{"command": "listschedules", "description": "Menu Pesan Terjadwal WA"},
+		{"command": "listmuted", "description": "Menu Muted Kontak WA"},
+		{"command": "listprompts", "description": "Menu Custom Prompts VIP"},
 	}
 	payload := map[string]any{"commands": cmds}
 	b, _ := json.Marshal(payload)
@@ -319,12 +306,14 @@ func sendTelegramHTML(botToken string, chatID int64, htmlText string, keyboard *
 	return nil
 }
 
-func getAdminInlineKeyboard() InlineKeyboardMarkup {
+// ── SUB-MENU KEYBOARD BUILDERS ──
+
+func getMainMenuKeyboard() InlineKeyboardMarkup {
 	return InlineKeyboardMarkup{
 		InlineKeyboard: [][]InlineKeyboardButton{
 			{
 				{Text: "📊 Status Bot", CallbackData: "/status"},
-				{Text: "🔑 List Keys", CallbackData: "/listkeys"},
+				{Text: "🔑 Groq API Keys", CallbackData: "/listkeys"},
 			},
 			{
 				{Text: "🟢 Enable AI", CallbackData: "/enableai"},
@@ -339,14 +328,100 @@ func getAdminInlineKeyboard() InlineKeyboardMarkup {
 				{Text: "💖 Custom Prompts", CallbackData: "/listprompts"},
 			},
 			{
-				{Text: "⚙️ Pengaturan", CallbackData: "/status"},
+				{Text: "📖 Knowledge Base", CallbackData: "/viewknowledge"},
 				{Text: "🔄 Refresh Menu", CallbackData: "/start"},
 			},
 		},
 	}
 }
 
-func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotRepository, cfg *domainBot.AIConfig, text string) string {
+func getKeysSubMenuKeyboard() InlineKeyboardMarkup {
+	return InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{
+				{Text: "🔄 Refresh List", CallbackData: "/listkeys"},
+				{Text: "➕ Tambah Key", CallbackData: "/help_addkey"},
+			},
+			{
+				{Text: "🗑️ Hapus Key", CallbackData: "/help_delkey"},
+				{Text: "📊 Status Engine", CallbackData: "/status"},
+			},
+			{
+				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+			},
+		},
+	}
+}
+
+func getRulesSubMenuKeyboard() InlineKeyboardMarkup {
+	return InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{
+				{Text: "🔄 Refresh Rules", CallbackData: "/listrules"},
+				{Text: "➕ Buat Rule Baru", CallbackData: "/help_addrule"},
+			},
+			{
+				{Text: "🗑️ Hapus Rule", CallbackData: "/help_delrule"},
+			},
+			{
+				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+			},
+		},
+	}
+}
+
+func getSchedulesSubMenuKeyboard() InlineKeyboardMarkup {
+	return InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{
+				{Text: "🔄 Refresh Jadwal", CallbackData: "/listschedules"},
+				{Text: "➕ Buat Jadwal Baru", CallbackData: "/help_addschedule"},
+			},
+			{
+				{Text: "🗑️ Hapus Jadwal", CallbackData: "/help_delschedule"},
+			},
+			{
+				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+			},
+		},
+	}
+}
+
+func getMutedSubMenuKeyboard() InlineKeyboardMarkup {
+	return InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{
+				{Text: "🔄 Refresh List Muted", CallbackData: "/listmuted"},
+				{Text: "🔇 Mute Kontak", CallbackData: "/help_mute"},
+			},
+			{
+				{Text: "🔊 Unmute Kontak", CallbackData: "/help_unmute"},
+			},
+			{
+				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+			},
+		},
+	}
+}
+
+func getPromptsSubMenuKeyboard() InlineKeyboardMarkup {
+	return InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{
+				{Text: "🔄 Refresh Custom Prompts", CallbackData: "/listprompts"},
+				{Text: "💖 Set Prompt Kontak VIP", CallbackData: "/help_setprompt"},
+			},
+			{
+				{Text: "🗑️ Hapus Custom Prompt", CallbackData: "/help_delprompt"},
+			},
+			{
+				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+			},
+		},
+	}
+}
+
+func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotRepository, cfg *domainBot.AIConfig, text string) (string, InlineKeyboardMarkup) {
 	cmd := strings.TrimSpace(text)
 	lower := strings.ToLower(cmd)
 
@@ -355,8 +430,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		cfg = &defaultCfg
 	}
 
-	if lower == "/start" || lower == "/help" || lower == "/helpadmin" {
-		return "🤖 <b>gowasi</b>"
+	if lower == "/start" || lower == "/help" || lower == "/helpadmin" || lower == "/menu" {
+		return "🤖 <b>gowasi</b>", getMainMenuKeyboard()
 	}
 
 	if lower == "/status" {
@@ -373,28 +448,28 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			fmt.Sprintf("• Groq Keys Count: <b>%d Keys</b>\n", len(keys)) +
 			fmt.Sprintf("• Muted Contacts: <b>%d Contacts</b>\n", mutedCount) +
 			fmt.Sprintf("• Custom Prompts: <b>%d Custom Prompts</b>\n", len(cfg.CustomNumberPrompts)) +
-			fmt.Sprintf("• Response Cooldown: <code>%d ms</code>", cfg.CooldownMs)
+			fmt.Sprintf("• Response Cooldown: <code>%d ms</code>", cfg.CooldownMs), getMainMenuKeyboard()
 	}
 
 	if lower == "/enableai" {
 		cfg.Enabled = true
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		return "🟢 <b>AI ASSISTANT BERHASIL DIAKTIFKAN KEMBALI!</b>"
+		return "🟢 <b>AI ASSISTANT BERHASIL DIAKTIFKAN KEMBALI!</b>", getMainMenuKeyboard()
 	}
 
 	if lower == "/disableai" {
 		cfg.Enabled = false
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		return "🔴 <b>AI ASSISTANT BERHASIL DINONAKTIFKAN!</b>"
+		return "🔴 <b>AI ASSISTANT BERHASIL DINONAKTIFKAN!</b>", getMainMenuKeyboard()
 	}
 
-	// ── 1. GROQ KEYS CRUD ──
+	// ── 1. GROQ KEYS SUB-MENU & CRUD ──
 	if lower == "/listkeys" {
 		keys := parseGroqKeys(cfg.APIKey)
 		if len(keys) == 0 {
-			return "⚠️ <b>Belum ada Groq API Key tersimpan.</b>\nGunakan <code>/addkey [gsk_key]</code> untuk menambah key."
+			return "🔑 <b>MANAJEMEN GROQ API KEYS</b>\n\n⚠️ <b>Belum ada Groq API Key tersimpan.</b>\nKlik tombol <b>➕ Tambah Key</b> di bawah ini.", getKeysSubMenuKeyboard()
 		}
-		out := fmt.Sprintf("🔑 <b>DAFTAR GROQ API KEYS (%d KEYS):</b>\n\n", len(keys))
+		out := fmt.Sprintf("🔑 <b>DAFTAR GROQ API KEYS (%d KEYS AKTIF):</b>\n\n", len(keys))
 		for i, k := range keys {
 			masked := k
 			if len(k) > 12 {
@@ -402,8 +477,15 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			out += fmt.Sprintf("%d. <code>%s</code>\n", i+1, masked)
 		}
-		out += "\n💡 <i>Format Hapus: <code>/delkey [indeks_atau_key]</code></i>"
-		return out
+		return out, getKeysSubMenuKeyboard()
+	}
+
+	if lower == "/help_addkey" {
+		return "🔑 <b>CARA MENAMBAH GROQ API KEY:</b>\n\nKetik perintah:\n<code>/addkey gsk_xxxxxxx</code>\n\n💡 <i>Anda dapat memasukkan multiple key sekaligus dipisahkan baris baru.</i>", getKeysSubMenuKeyboard()
+	}
+
+	if lower == "/help_delkey" {
+		return "🗑️ <b>CARA MENGHAPUS GROQ API KEY:</b>\n\nKetik perintah:\n<code>/delkey [indeks_atau_key]</code>\n\nContoh: <code>/delkey 1</code>", getKeysSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/addkey ") {
@@ -416,7 +498,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
 			keys := parseGroqKeys(cfg.APIKey)
-			return fmt.Sprintf("✅ <b>GROQ API KEY BERHASIL DITAMBAHKAN!</b>\n\nKey: <code>%s</code>\nTotal Keys: <b>%d Keys</b>", newKey, len(keys))
+			return fmt.Sprintf("✅ <b>GROQ API KEY BERHASIL DITAMBAHKAN!</b>\n\nKey: <code>%s</code>\nTotal Keys: <b>%d Keys</b>", newKey, len(keys)), getKeysSubMenuKeyboard()
 		}
 	}
 
@@ -440,22 +522,29 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 		cfg.APIKey = strings.Join(newKeys, "\n")
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		return fmt.Sprintf("🗑️ <b>KEY BERHASIL DIHAPUS.</b> Sisa Key Aktif: <b>%d Keys</b>", len(newKeys))
+		return fmt.Sprintf("🗑️ <b>KEY BERHASIL DIHAPUS.</b> Sisa Key Aktif: <b>%d Keys</b>", len(newKeys)), getKeysSubMenuKeyboard()
 	}
 
-	// ── 2. AUTO-REPLY RULES CRUD ──
+	// ── 2. AUTO-REPLY RULES SUB-MENU & CRUD ──
 	if lower == "/listrules" {
 		rules, err := repo.ListRules(ctx, "")
 		if err != nil || len(rules) == 0 {
-			return "📜 <b>Belum ada Aturan Balas Otomatis (Auto-Reply Rules).</b>\n\nGunakan format <code>/addrule Nama|type|keyword|response</code> untuk menambah aturan baru!\nContoh: <code>/addrule Salam|contains|halo|Halo kawan!</code>"
+			return "📜 <b>MANAJEMEN AUTO-REPLY RULES</b>\n\n⚠️ <b>Belum ada Aturan Balas Otomatis.</b>\nKlik tombol <b>➕ Buat Rule Baru</b> di bawah ini.", getRulesSubMenuKeyboard()
 		}
 		out := fmt.Sprintf("📜 <b>DAFTAR ATURAN BALAS OTOMATIS (%d RULES):</b>\n\n", len(rules))
 		for i, r := range rules {
 			out += fmt.Sprintf("<b>%d. %s</b> (ID: <code>%s</code>)\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>\n\n",
 				i+1, r.Name, r.ID[:8], r.TriggerValue, r.TriggerType, r.ResponseText)
 		}
-		out += "💡 <i>Format Hapus: <code>/delrule [id]</code></i>"
-		return out
+		return out, getRulesSubMenuKeyboard()
+	}
+
+	if lower == "/help_addrule" {
+		return "📜 <b>CARA MEMBUAT ATURAN BALAS OTOMATIS:</b>\n\nKetik perintah:\n<code>/addrule [Nama]|[contains/exact]|[Keyword]|[Respon]</code>\n\nContoh: <code>/addrule CS|contains|harga|Harga produk Rp 50.000</code>", getRulesSubMenuKeyboard()
+	}
+
+	if lower == "/help_delrule" {
+		return "🗑️ <b>CARA MENGHAPUS ATURAN AUTO-REPLY:</b>\n\nKetik perintah:\n<code>/delrule [id_rule]</code>\n\nContoh: <code>/delrule a1b2c3d4</code>", getRulesSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/addrule ") {
@@ -480,10 +569,10 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			newRule, err := repo.CreateRule(ctx, rule)
 			if err == nil {
 				return fmt.Sprintf("✅ <b>ATURAN BALAS OTOMATIS BERHASIL DIBUAT!</b>\n\n• Nama: <b>%s</b>\n• ID: <code>%s</code>\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>",
-					newRule.Name, newRule.ID[:8], newRule.TriggerValue, newRule.TriggerType, newRule.ResponseText)
+					newRule.Name, newRule.ID[:8], newRule.TriggerValue, newRule.TriggerType, newRule.ResponseText), getRulesSubMenuKeyboard()
 			}
 		}
-		return "⚠️ <b>Format Tambah Rule Salah!</b>\nFormat: <code>/addrule Nama|type|keyword|response</code>\nContoh: <code>/addrule CS|contains|harga|Harga produk Rp 50.000</code>"
+		return "⚠️ <b>Format Tambah Rule Salah!</b>\nFormat: <code>/addrule Nama|type|keyword|response</code>\nContoh: <code>/addrule CS|contains|harga|Harga produk Rp 50.000</code>", getRulesSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/delrule ") {
@@ -497,24 +586,31 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 		}
 		if err := repo.DeleteRule(ctx, foundID); err == nil {
-			return fmt.Sprintf("🗑️ <b>RULE ID %s BERHASIL DIHAPUS!</b>", foundID[:8])
+			return fmt.Sprintf("🗑️ <b>RULE ID %s BERHASIL DIHAPUS!</b>", foundID[:8]), getRulesSubMenuKeyboard()
 		}
-		return "⚠️ Gagal menghapus rule. ID tidak ditemukan."
+		return "⚠️ Gagal menghapus rule. ID tidak ditemukan.", getRulesSubMenuKeyboard()
 	}
 
-	// ── 3. PESAN TERJADWAL (SCHEDULED MESSAGES) CRUD ──
+	// ── 3. PESAN TERJADWAL SUB-MENU & CRUD ──
 	if lower == "/listschedules" {
 		list, err := repo.ListScheduledMessages(ctx, "")
 		if err != nil || len(list) == 0 {
-			return "⏰ <b>Belum ada Pesan Terjadwal WA.</b>\n\nGunakan format <code>/addschedule [nomor]|[waktu]|[pesan]</code> untuk menambah jadwal baru!\nContoh: <code>/addschedule 6281234567890|10m|Ingatkan besok meeting</code>"
+			return "⏰ <b>MANAJEMEN PESAN TERJADWAL WA</b>\n\n⚠️ <b>Belum ada Pesan Terjadwal WA.</b>\nKlik tombol <b>➕ Buat Jadwal Baru</b> di bawah ini.", getSchedulesSubMenuKeyboard()
 		}
 		out := fmt.Sprintf("⏰ <b>DAFTAR PESAN TERJADWAL (%d MESSAGES):</b>\n\n", len(list))
 		for i, m := range list {
 			out += fmt.Sprintf("<b>%d. ID: <code>%s</code></b> — Status: <b>%s</b>\n• WA: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>\n\n",
 				i+1, m.ID[:8], m.Status, m.Phone, m.SendAt.Format("02 Jan 2006 15:04 WIB"), m.Message)
 		}
-		out += "💡 <i>Format Hapus: <code>/delschedule [id]</code></i>"
-		return out
+		return out, getSchedulesSubMenuKeyboard()
+	}
+
+	if lower == "/help_addschedule" {
+		return "⏰ <b>CARA MEMBUAT PESAN TERJADWAL WA:</b>\n\nKetik perintah:\n<code>/addschedule [nomor]|[durasi/waktu]|[pesan]</code>\n\nContoh 1: <code>/addschedule 6281234567890|30m|Ingatkan besok meeting</code>\nContoh 2: <code>/addschedule 6281234567890|2h|Pengingat tagihan</code>", getSchedulesSubMenuKeyboard()
+	}
+
+	if lower == "/help_delschedule" {
+		return "🗑️ <b>CARA MENGHAPUS PESAN TERJADWAL:</b>\n\nKetik perintah:\n<code>/delschedule [id_jadwal]</code>", getSchedulesSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/addschedule ") {
@@ -546,10 +642,10 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			res, err := repo.CreateScheduledMessage(ctx, sMsg)
 			if err == nil {
 				return fmt.Sprintf("⏰ <b>PESAN TERJADWAL BERHASIL DIBUAT!</b>\n\n• ID: <code>%s</code>\n• Tujuan: <code>%s</code>\n• Waktu Kirim: <code>%s</code>\n• Pesan: <i>%s</i>",
-					res.ID[:8], res.Phone, res.SendAt.Format("02 Jan 2006 15:04 WIB"), res.Message)
+					res.ID[:8], res.Phone, res.SendAt.Format("02 Jan 2006 15:04 WIB"), res.Message), getSchedulesSubMenuKeyboard()
 			}
 		}
-		return "⚠️ <b>Format Tambah Jadwal Salah!</b>\nFormat: <code>/addschedule [nomor]|[10m/1h/ISO]|[pesan]</code>\nContoh: <code>/addschedule 6281234567890|30m|Halo bos</code>"
+		return "⚠️ <b>Format Tambah Jadwal Salah!</b>\nFormat: <code>/addschedule [nomor]|[10m/1h/ISO]|[pesan]</code>", getSchedulesSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/delschedule ") {
@@ -563,15 +659,15 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 		}
 		if err := repo.DeleteScheduledMessage(ctx, foundID); err == nil {
-			return fmt.Sprintf("🗑️ <b>JADWAL ID %s BERHASIL DIHAPUS!</b>", foundID[:8])
+			return fmt.Sprintf("🗑️ <b>JADWAL ID %s BERHASIL DIHAPUS!</b>", foundID[:8]), getSchedulesSubMenuKeyboard()
 		}
-		return "⚠️ Gagal menghapus jadwal. ID tidak ditemukan."
+		return "⚠️ Gagal menghapus jadwal. ID tidak ditemukan.", getSchedulesSubMenuKeyboard()
 	}
 
-	// ── 4. MUTE KONTAK WA CRUD ──
+	// ── 4. MUTE KONTAK SUB-MENU & CRUD ──
 	if lower == "/listmuted" {
 		if len(cfg.BlockedNumbers) == 0 {
-			return "🟢 <b>Tidak ada kontak yang di-mute.</b> Semua kontak WA dapat mengakses AI."
+			return "🚫 <b>MANAJEMEN MUTE KONTAK WA</b>\n\n🟢 <b>Tidak ada kontak yang di-mute.</b> Semua kontak WA dapat mengakses AI.", getMutedSubMenuKeyboard()
 		}
 		out := fmt.Sprintf("🚫 <b>DAFTAR KONTAK WA TER-MUTE (%d KONTAK):</b>\n\n", len(cfg.BlockedNumbers))
 		for i, b := range cfg.BlockedNumbers {
@@ -583,8 +679,15 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			out += fmt.Sprintf("%d. <code>%s</code> — %s\n", i+1, phone, durInfo)
 		}
-		out += "\n💡 <i>Unmute: <code>/unmute [nomor]</code></i>"
-		return out
+		return out, getMutedSubMenuKeyboard()
+	}
+
+	if lower == "/help_mute" {
+		return "🔇 <b>CARA MENG-MUTE KONTAK WA:</b>\n\nKetik perintah:\n<code>/mute [nomor] [1h|24h|7d|permanent]</code>\n\nContoh: <code>/mute 6281234567890 24h</code>", getMutedSubMenuKeyboard()
+	}
+
+	if lower == "/help_unmute" {
+		return "🔊 <b>CARA UNMUTE KONTAK WA:</b>\n\nKetik perintah:\n<code>/unmute [nomor]</code>\n\nContoh: <code>/unmute 6281234567890</code>", getMutedSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/mute ") {
@@ -610,7 +713,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			cfg.BlockedNumbers = append(cfg.BlockedNumbers, entry)
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
-			return fmt.Sprintf("🚫 <b>AI BERHASIL DINONAKTIFKAN UNTUK %s</b>\nDurasi: <code>%s</code>", targetPhone, dur)
+			return fmt.Sprintf("🚫 <b>AI BERHASIL DINONAKTIFKAN UNTUK %s</b>\nDurasi: <code>%s</code>", targetPhone, dur), getMutedSubMenuKeyboard()
 		}
 	}
 
@@ -624,13 +727,13 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 		cfg.BlockedNumbers = newBlocked
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		return fmt.Sprintf("✅ <b>AI DIAKTIFKAN KEMBALI UNTUK KONTAK:</b> <code>%s</code>", targetPhone)
+		return fmt.Sprintf("✅ <b>AI DIAKTIFKAN KEMBALI UNTUK KONTAK:</b> <code>%s</code>", targetPhone), getMutedSubMenuKeyboard()
 	}
 
-	// ── 5. CUSTOM PROMPTS PER NOMOR CRUD ──
+	// ── 5. CUSTOM PROMPTS VIP SUB-MENU & CRUD ──
 	if lower == "/listprompts" {
 		if len(cfg.CustomNumberPrompts) == 0 {
-			return "💖 <b>Belum ada Custom Prompting per-nomor.</b>\nFormat Tambah: <code>/setprompt [nomor] [prompt]</code>"
+			return "💖 <b>MANAJEMEN CUSTOM PROMPTS VIP</b>\n\n⚠️ <b>Belum ada Custom Prompting per-nomor.</b>\nKlik tombol <b>💖 Set Prompt Kontak VIP</b> di bawah ini.", getPromptsSubMenuKeyboard()
 		}
 		out := fmt.Sprintf("💖 <b>DAFTAR CUSTOM PROMPT KONTAK (%d KONTAK):</b>\n\n", len(cfg.CustomNumberPrompts))
 		i := 1
@@ -638,8 +741,15 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			out += fmt.Sprintf("<b>%d. <code>%s</code></b>\nPrompt: <i>%s</i>\n\n", i, phone, p)
 			i++
 		}
-		out += "💡 <i>Hapus: <code>/delprompt [nomor]</code></i>"
-		return out
+		return out, getPromptsSubMenuKeyboard()
+	}
+
+	if lower == "/help_setprompt" {
+		return "💖 <b>CARA MEMBUAT CUSTOM PROMPT PERSONA:</b>\n\nKetik perintah:\n<code>/setprompt [nomor] [prompt_khusus]</code>\n\nContoh: <code>/setprompt 6281234567890 Kamu adalah pacar saya yang penyayang, gunakan bahasa santai dan ramah.</code>", getPromptsSubMenuKeyboard()
+	}
+
+	if lower == "/help_delprompt" {
+		return "🗑️ <b>CARA MENGHAPUS CUSTOM PROMPT:</b>\n\nKetik perintah:\n<code>/delprompt [nomor]</code>", getPromptsSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/setprompt ") {
@@ -652,7 +762,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			cfg.CustomNumberPrompts[targetPhone] = customPrompt
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
-			return fmt.Sprintf("💖 <b>PROMPT KHUSUS BERHASIL DISIMPAN UNTUK %s!</b>\n\n<b>Prompt:</b> <i>%s</i>", targetPhone, customPrompt)
+			return fmt.Sprintf("💖 <b>PROMPT KHUSUS BERHASIL DISIMPAN UNTUK %s!</b>\n\n<b>Prompt:</b> <i>%s</i>", targetPhone, customPrompt), getPromptsSubMenuKeyboard()
 		}
 	}
 
@@ -662,14 +772,22 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			delete(cfg.CustomNumberPrompts, targetPhone)
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
 		}
-		return fmt.Sprintf("🗑️ <b>PROMPT KHUSUS UNTUK %s BERHASIL DIHAPUS.</b>", targetPhone)
+		return fmt.Sprintf("🗑️ <b>PROMPT KHUSUS UNTUK %s BERHASIL DIHAPUS.</b>", targetPhone), getPromptsSubMenuKeyboard()
+	}
+
+	if lower == "/viewknowledge" {
+		kbText := cfg.KnowledgeBase
+		if kbText == "" {
+			kbText = "<i>Belum ada Basis Pengetahuan / Data Toko yang diset.</i>\n\nKetik: <code>/setknowledge [teks_informasi]</code> untuk mengisinya."
+		}
+		return "📚 <b>BASIS PENGETAHUAN / DATA TOKO:</b>\n\n" + kbText, getMainMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/setknowledge ") {
 		newKnowledge := strings.TrimSpace(cmd[14:])
 		cfg.KnowledgeBase = newKnowledge
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		return "📚 <b>BASIS PENGETAHUAN / DATA TOKO BERHASIL DIPERBARUI!</b>"
+		return "📚 <b>BASIS PENGETAHUAN / DATA TOKO BERHASIL DIPERBARUI!</b>", getMainMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/setmodel ") {
@@ -677,14 +795,14 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		if modelName != "" {
 			cfg.Model = modelName
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
-			return fmt.Sprintf("🧠 <b>MODEL GROQ BERHASIL DIUBAH KE:</b> <code>%s</code>", modelName)
+			return fmt.Sprintf("🧠 <b>MODEL GROQ BERHASIL DIUBAH KE:</b> <code>%s</code>", modelName), getMainMenuKeyboard()
 		}
 	}
 
 	// AI Natural Reply for Super Admin on Telegram
 	res, err := callAI(ctx, cfg, text, "telegram_admin")
 	if err != nil || res == "" {
-		return "🤖 <b>Telegram Admin AI:</b> Perintah tidak dikenali. Ketik /help untuk melihat menu perintah lengkap."
+		return "🤖 <b>Telegram Admin AI:</b> Perintah tidak dikenali. Ketik /help untuk melihat menu perintah lengkap.", getMainMenuKeyboard()
 	}
-	return res
+	return res, getMainMenuKeyboard()
 }

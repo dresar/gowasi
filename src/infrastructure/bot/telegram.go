@@ -78,15 +78,15 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 					botToken = strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 				}
 				if botToken == "" {
-					botToken = "7969028715:AAENtmQ3tpwlY0QrJpdRlRLIEaB2_UMmFzo"
+					time.Sleep(5 * time.Second)
+					continue
 				}
 
-				adminChatID := "7896674035"
+				adminChatID := ""
 				if cfg != nil && strings.TrimSpace(cfg.TelegramAdminChatID) != "" {
 					adminChatID = strings.TrimSpace(cfg.TelegramAdminChatID)
-				} else if cfg != nil {
-					cfg.TelegramAdminChatID = "7896674035"
-					_, _ = repo.UpsertAIConfig(ctx, *cfg)
+				} else {
+					adminChatID = strings.TrimSpace(os.Getenv("TELEGRAM_ADMIN_CHAT_ID"))
 				}
 
 				// Register Telegram Commands Autocomplete once
@@ -110,7 +110,7 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 
 						_ = answerCallbackQuery(botToken, cb.ID, "Memproses...")
 
-						if chatIDStr != adminChatID && chatIDStr != "7896674035" {
+						if adminChatID != "" && chatIDStr != adminChatID {
 							_ = sendTelegramHTML(botToken, chatID, "⚠️ <b>Akses Ditolak</b>: ID Telegram Anda (<code>"+chatIDStr+"</code>) tidak memiliki izin Master Admin.", nil)
 							continue
 						}
@@ -129,9 +129,14 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 					chatIDStr := fmt.Sprintf("%d", u.Message.Chat.ID)
 					logrus.Infof("[TELEGRAM_ADMIN] Received Telegram message from %s (ChatID: %s): %s", u.Message.From.Username, chatIDStr, u.Message.Text)
 
-					if chatIDStr != adminChatID && chatIDStr != "7896674035" {
+					if adminChatID != "" && chatIDStr != adminChatID {
 						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, "⚠️ <b>Akses Ditolak</b>: ID Telegram Anda (<code>"+chatIDStr+"</code>) tidak memiliki izin Master Admin.", nil)
 						continue
+					} else if adminChatID == "" && cfg != nil {
+						cfg.TelegramAdminChatID = chatIDStr
+						_, _ = repo.UpsertAIConfig(ctx, *cfg)
+						adminChatID = chatIDStr
+						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, "👑 <b>Auto-Bound Success!</b>\nChat Telegram ini sekarang terdaftar sebagai Master Admin ID: <code>"+chatIDStr+"</code>", nil)
 					}
 
 					text := u.Message.Text
@@ -170,7 +175,7 @@ func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRep
 				botToken = strings.TrimSpace(cfg.TelegramBotToken)
 			}
 			if botToken == "" {
-				botToken = "7969028715:AAENtmQ3tpwlY0QrJpdRlRLIEaB2_UMmFzo"
+				botToken = strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 			}
 			adminChatID := ""
 			if cfg != nil {

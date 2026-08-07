@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -450,17 +451,26 @@ func scanSQLiteAIConfig(s scanner) (domainBot.AIConfig, error) {
 	if cfg.CustomSkills == nil {
 		cfg.CustomSkills = []string{}
 	}
-	if cfg.AdminNumbers == nil || len(cfg.AdminNumbers) == 0 {
-		cfg.AdminNumbers = []string{"6282392115909"}
+	if cfg.AdminNumbers == nil {
+		cfg.AdminNumbers = []string{}
 	}
 	return cfg, nil
 }
 
 func defaultAIConfig(deviceID string) domainBot.AIConfig {
+	adminNum := os.Getenv("BOT_ADMIN_NUMBERS")
+	var adminNums []string
+	if adminNum != "" {
+		adminNums = strings.Split(adminNum, ",")
+	} else {
+		adminNums = []string{}
+	}
+
 	return domainBot.AIConfig{
 		DeviceID:            deviceID,
 		Enabled:             true,
 		Provider:            domainBot.AIProviderGroq,
+		APIKey:              os.Getenv("GROQ_API_KEY"),
 		Model:               "llama-3.3-70b-versatile",
 		OllamaURL:           "http://localhost:11434",
 		SystemPrompt:        "Kamu adalah asisten WhatsApp resmi yang ramah, profesional, dan solutif. Jawab pertanyaan pengguna secara akurat, singkat, dan mudah dipahami dalam Bahasa Indonesia.",
@@ -473,9 +483,9 @@ func defaultAIConfig(deviceID string) domainBot.AIConfig {
 		BlockedNumbers:      []string{},
 		CustomNumberPrompts: make(map[string]string),
 		CustomSkills:        []string{"non_formal_tone", "deep_context_memory", "auto_schedule"},
-		AdminNumbers:        []string{"6282392115909"},
-		TelegramBotToken:    "7969028715:AAENtmQ3tpwlY0QrJpdRlRLIEaB2_UMmFzo",
-		TelegramAdminChatID: "7896674035",
+		AdminNumbers:        adminNums,
+		TelegramBotToken:    os.Getenv("TELEGRAM_BOT_TOKEN"),
+		TelegramAdminChatID: os.Getenv("TELEGRAM_ADMIN_CHAT_ID"),
 	}
 }
 

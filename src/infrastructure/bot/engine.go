@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -96,12 +97,12 @@ func ProcessMessage(
 	}
 
 	aiCfg, err := repo.GetAIConfig(ctx, deviceID)
-	if err != nil || aiCfg == nil || aiCfg.APIKey == "" {
-		if globalCfg, gErr := repo.GetAIConfig(ctx, ""); gErr == nil && globalCfg != nil && globalCfg.APIKey != "" {
+	if err != nil || aiCfg == nil {
+		if globalCfg, gErr := repo.GetAIConfig(ctx, ""); gErr == nil && globalCfg != nil {
 			aiCfg = globalCfg
-		} else if aiCfg == nil {
-			d := defaultAIConfig(deviceID)
-			aiCfg = &d
+		} else {
+			defaultCfg := defaultAIConfig(deviceID)
+			aiCfg = &defaultCfg
 		}
 	}
 
@@ -584,6 +585,9 @@ func parseGroqKeys(apiKeyRaw string) []string {
 }
 
 func callGroq(ctx context.Context, apiKey, model, systemPrompt, userMessage string, maxTokens int, temperature float64) (string, error) {
+	if apiKey == "" {
+		apiKey = os.Getenv("GROQ_API_KEY")
+	}
 	if model == "" {
 		model = "llama-3.3-70b-versatile"
 	}

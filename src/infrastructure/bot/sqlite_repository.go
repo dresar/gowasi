@@ -132,44 +132,54 @@ func (r *SQLiteRepository) seedDefaultRulesIfEmpty(ctx context.Context) {
 	}
 
 	defaults := []domainBot.AutoReplyRule{
-		{
-			Name:         "Salam Halo / Hi",
-			Enabled:      true,
-			Priority:     1,
-			TriggerType:  domainBot.TriggerContains,
-			TriggerValue: "halo",
-			ResponseText: "Halo kak! Ada yang bisa kami bantu hari ini? 😊",
-		},
-		{
-			Name:         "Harga / Price / Biaya",
-			Enabled:      true,
-			Priority:     1,
-			TriggerType:  domainBot.TriggerContains,
-			TriggerValue: "harga",
-			ResponseText: "Untuk daftar harga lengkap dan promo terbaru, silakan cek katalog kami ya kak. 🙏",
-		},
-		{
-			Name:         "Assalamualaikum / Salam",
-			Enabled:      true,
-			Priority:     1,
-			TriggerType:  domainBot.TriggerContains,
-			TriggerValue: "assalam",
-			ResponseText: "Waalaikumsalam kak! Selamat datang di layanan pelanggan kami. Ada yang bisa kami bantu?",
-		},
-		{
-			Name:         "Panggilan P",
-			Enabled:      true,
-			Priority:     1,
-			TriggerType:  domainBot.TriggerExact,
-			TriggerValue: "p",
-			ResponseText: "Iya kak, ada yang bisa kami bantu? Silakan tuliskan pertanyaanmu dengan lengkap ya. 🙏",
-		},
+		// ─── Sapaan ───
+		{Name: "Salam - Halo/Hi", Enabled: true, Priority: 1, TriggerType: domainBot.TriggerContains, TriggerValue: "halo", ResponseText: "Halo kak! Selamat datang di layanan kami 😊 Ada yang bisa kami bantu?"},
+		{Name: "Salam - Assalamualaikum", Enabled: true, Priority: 1, TriggerType: domainBot.TriggerContains, TriggerValue: "assalam", ResponseText: "Waalaikumsalam kak! Selamat datang 🙏 Ada yang bisa kami bantu hari ini?"},
+		{Name: "Salam - Selamat Pagi", Enabled: true, Priority: 1, TriggerType: domainBot.TriggerContains, TriggerValue: "selamat pagi", ResponseText: "Selamat pagi kak! 🌅 Semoga hari Anda menyenangkan. Ada yang bisa kami bantu?"},
+		{Name: "Salam - Selamat Siang", Enabled: true, Priority: 1, TriggerType: domainBot.TriggerContains, TriggerValue: "selamat siang", ResponseText: "Selamat siang kak! ☀️ Ada yang bisa kami bantu?"},
+		{Name: "Salam - Selamat Malam", Enabled: true, Priority: 1, TriggerType: domainBot.TriggerContains, TriggerValue: "selamat malam", ResponseText: "Selamat malam kak! 🌙 Ada yang bisa kami bantu malam ini?"},
+		{Name: "Panggilan P", Enabled: true, Priority: 1, TriggerType: domainBot.TriggerExact, TriggerValue: "p", ResponseText: "Iya kak, ada yang bisa kami bantu? 😊 Silakan tuliskan pertanyaan Anda."},
+		{Name: "Panggilan Permisi", Enabled: true, Priority: 1, TriggerType: domainBot.TriggerContains, TriggerValue: "permisi", ResponseText: "Iya kak, kami di sini 😊 Silakan sampaikan keperluannya."},
+		// ─── Harga & Produk ───
+		{Name: "Tanya Harga", Enabled: true, Priority: 2, TriggerType: domainBot.TriggerContains, TriggerValue: "harga", ResponseText: "Untuk info harga terbaru dan promo spesial, silakan lihat katalog kami kak 📋 Atau sebutkan produk yang diminati, kami bantu cek harganya!"},
+		{Name: "Tanya Harga - Berapa", Enabled: true, Priority: 2, TriggerType: domainBot.TriggerContains, TriggerValue: "berapa harga", ResponseText: "Harga produk kami bervariasi kak. Sebutkan produk yang diinginkan ya, kami segera infokan harganya 😊"},
+		{Name: "Tanya Produk", Enabled: true, Priority: 2, TriggerType: domainBot.TriggerContains, TriggerValue: "produk", ResponseText: "Kami memiliki berbagai produk pilihan kak 🛍️ Silakan sebutkan kebutuhan Anda dan kami akan rekomendasikan yang terbaik!"},
+		{Name: "Tanya Stok", Enabled: true, Priority: 2, TriggerType: domainBot.TriggerContains, TriggerValue: "stok", ResponseText: "Untuk cek ketersediaan stok, silakan sebutkan nama produknya kak 📦 Kami segera cek untuk Anda!"},
+		{Name: "Tanya Katalog", Enabled: true, Priority: 2, TriggerType: domainBot.TriggerContains, TriggerValue: "katalog", ResponseText: "Berikut katalog produk terbaru kami kak 📋 [Link katalog akan segera dikirim]. Silakan pilih yang sesuai!"},
+		// ─── Pemesanan ───
+		{Name: "Cara Order", Enabled: true, Priority: 3, TriggerType: domainBot.TriggerContains, TriggerValue: "cara order", ResponseText: "Cara pemesanan sangat mudah kak! 🛒\n1. Pilih produk\n2. Konfirmasi ke kami\n3. Lakukan pembayaran\n4. Pesanan diproses & dikirim\nAda yang ingin dipesan sekarang?"},
+		{Name: "Cara Pesan", Enabled: true, Priority: 3, TriggerType: domainBot.TriggerContains, TriggerValue: "cara pesan", ResponseText: "Cara pesan mudah kak 😊 Cukup kirimkan nama produk & alamat pengiriman ke kami, lalu kami akan proses pesanan Anda!"},
+		{Name: "Mau Order", Enabled: true, Priority: 3, TriggerType: domainBot.TriggerContains, TriggerValue: "mau order", ResponseText: "Siap kak! 🛒 Silakan sebutkan produk yang ingin dipesan beserta jumlahnya ya."},
+		{Name: "Mau Beli", Enabled: true, Priority: 3, TriggerType: domainBot.TriggerContains, TriggerValue: "mau beli", ResponseText: "Tentu kak, kami siap membantu! 🎉 Produk apa yang ingin dibeli?"},
+		// ─── Pengiriman ───
+		{Name: "Tanya Ongkir", Enabled: true, Priority: 4, TriggerType: domainBot.TriggerContains, TriggerValue: "ongkir", ResponseText: "Ongkos kirim tergantung lokasi tujuan kak 🚚 Untuk cek ongkir, sebutkan kota tujuan Anda ya!"},
+		{Name: "Tanya Pengiriman", Enabled: true, Priority: 4, TriggerType: domainBot.TriggerContains, TriggerValue: "pengiriman", ResponseText: "Kami melayani pengiriman ke seluruh Indonesia kak 🇮🇩 Estimasi 1-3 hari kerja tergantung lokasi."},
+		{Name: "Kapan Sampai", Enabled: true, Priority: 4, TriggerType: domainBot.TriggerContains, TriggerValue: "kapan sampai", ResponseText: "Estimasi pengiriman 1-3 hari kerja kak ⏱️ Untuk tracking, kami akan kirimkan nomor resi setelah paket dikirim ya!"},
+		{Name: "Gratis Ongkir", Enabled: true, Priority: 4, TriggerType: domainBot.TriggerContains, TriggerValue: "gratis ongkir", ResponseText: "Ada promo gratis ongkir untuk pembelian minimum tertentu kak! 🎁 Tanyakan admin kami untuk info promo terbaru."},
+		// ─── Pembayaran ───
+		{Name: "Cara Bayar", Enabled: true, Priority: 5, TriggerType: domainBot.TriggerContains, TriggerValue: "cara bayar", ResponseText: "Kami menerima berbagai metode pembayaran kak 💳\n- Transfer Bank (BCA/BNI/Mandiri)\n- GoPay / OVO / DANA / ShopeePay\n- COD (area tertentu)\nPilih yang paling mudah ya!"},
+		{Name: "Tanya Rekening", Enabled: true, Priority: 5, TriggerType: domainBot.TriggerContains, TriggerValue: "rekening", ResponseText: "Untuk info rekening tujuan transfer, admin kami akan segera menginformasikan ya kak 🏦"},
+		{Name: "Sudah Transfer", Enabled: true, Priority: 5, TriggerType: domainBot.TriggerContains, TriggerValue: "sudah transfer", ResponseText: "Terima kasih kak! 🙏 Mohon kirimkan bukti transfer ke admin kami untuk segera kami proses ya."},
+		// ─── Promo & Diskon ───
+		{Name: "Tanya Promo", Enabled: true, Priority: 6, TriggerType: domainBot.TriggerContains, TriggerValue: "promo", ResponseText: "Kami punya berbagai promo menarik kak! 🎉 Tanya admin kami untuk info promo terbaru yang sedang berlangsung ya."},
+		{Name: "Tanya Diskon", Enabled: true, Priority: 6, TriggerType: domainBot.TriggerContains, TriggerValue: "diskon", ResponseText: "Ada diskon spesial untuk pelanggan setia kami kak! 💝 Hubungi admin untuk mendapatkan penawaran terbaik."},
+		// ─── Komplain & Layanan ───
+		{Name: "Komplain Produk", Enabled: true, Priority: 7, TriggerType: domainBot.TriggerContains, TriggerValue: "komplain", ResponseText: "Kami mohon maaf atas ketidaknyamanannya kak 🙏 Tim kami akan segera menangani permasalahan Anda. Mohon ceritakan masalahnya ya."},
+		{Name: "Produk Rusak", Enabled: true, Priority: 7, TriggerType: domainBot.TriggerContains, TriggerValue: "rusak", ResponseText: "Kami sangat minta maaf kak 😔 Produk rusak dapat diklaim dengan mengirimkan foto bukti ke kami. Tim kami akan segera membantu!"},
+		{Name: "Tanya Garansi", Enabled: true, Priority: 7, TriggerType: domainBot.TriggerContains, TriggerValue: "garansi", ResponseText: "Produk kami bergaransi kak! 🛡️ Untuk info detail garansi, admin kami akan menjelaskan sesuai produk yang dibeli."},
+		// ─── Umum ───
+		{Name: "Terima Kasih", Enabled: true, Priority: 8, TriggerType: domainBot.TriggerContains, TriggerValue: "terima kasih", ResponseText: "Sama-sama kak! 😊 Kami senang bisa membantu. Jangan ragu hubungi kami kapan saja ya!"},
+		{Name: "Lokasi / Alamat", Enabled: true, Priority: 8, TriggerType: domainBot.TriggerContains, TriggerValue: "lokasi", ResponseText: "Untuk alamat toko/kantor kami, silakan tanya admin ya kak 📍 Kami juga melayani pembelian online ke seluruh Indonesia!"},
+		{Name: "Jam Operasional", Enabled: true, Priority: 8, TriggerType: domainBot.TriggerContains, TriggerValue: "jam buka", ResponseText: "Jam operasional kami Senin-Sabtu pukul 08.00-17.00 WIB kak ⏰ Di luar jam tersebut, pesan Anda akan kami balas segera setelah jam kerja."},
+		{Name: "Minta Nomor Admin", Enabled: true, Priority: 8, TriggerType: domainBot.TriggerContains, TriggerValue: "hubungi admin", ResponseText: "Admin kami siap membantu kak 📞 Anda bisa langsung chat di sini atau menghubungi nomor yang tertera ya!"},
 	}
 
 	for _, rule := range defaults {
+		rule.ResponseType = "text"
 		_, _ = r.CreateRule(ctx, rule)
 	}
 }
+
 
 func (r *SQLiteRepository) seedDefaultAIConfigIfEmpty(ctx context.Context) {
 	var count int

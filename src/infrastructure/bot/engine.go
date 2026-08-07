@@ -512,16 +512,44 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 
 	systemPrompt := cfg.SystemPrompt
 
+	// ── Normalize phone for custom prompt lookup ──
+	// senderPhone may come as "628xxx" (already stripped) or full JID "628xxx@s.whatsapp.net"
+	normalizedPhone := stripJID(senderPhone) // strip @s.whatsapp.net, @g.us, etc.
+
 	// MASTER ADMIN PRIVILEGE INJECTION
-	if isAdminNumber(senderPhone, cfg.AdminNumbers) {
+	if isAdminNumber(normalizedPhone, cfg.AdminNumbers) {
 		systemPrompt = fmt.Sprintf("[HAK AKSES HIERARKI: MASTER ADMIN OWNER (%s)]:\n"+
 			"Pengirim pesan ini adalah MASTER ADMIN UTAMA / OWNER BOT (%s).\n"+
 			"Pengirim memiliki wewenang penuh atas seluruh konfigurasi bot. Berikan layanan terbaik, hormati instruksi admin, dan bantu atur jadwal/fitur secara fleksibel.\n\n"+
-			"%s", senderPhone, senderPhone, systemPrompt)
+			"%s", normalizedPhone, normalizedPhone, systemPrompt)
 	} else if cfg.CustomNumberPrompts != nil {
-		// Check if this specific phone number has a custom prompt (e.g. for girlfriend / partner / special VIP contact)
-		if customPrompt, ok := cfg.CustomNumberPrompts[senderPhone]; ok && strings.TrimSpace(customPrompt) != "" {
-			systemPrompt = fmt.Sprintf("[PROMPT KHUSUS PER-NOMOR KONTAK (%s)]:\n%s\n\n[INSTRUKSI UTAMA]: Ikuti instruksi dan gaya bahasa khusus kontak ini!", senderPhone, customPrompt)
+		// Try matching custom prompt with various phone formats:
+		// 1. Exact normalized phone (e.g. 628xxx)
+		// 2. Full JID (e.g. 628xxx@s.whatsapp.net) — for backward compat
+		// 3. Phone without leading country code (e.g. 08xxx from 628xxx)
+		customPromptFound := ""
+		for _, tryPhone := range []string{normalizedPhone, senderPhone} {
+			if p, ok := cfg.CustomNumberPrompts[tryPhone]; ok && strings.TrimSpace(p) != "" {
+				customPromptFound = strings.TrimSpace(p)
+				break
+			}
+		}
+		// Also try partial match: if stored key is contained in normalized phone
+		if customPromptFound == "" {
+			for storedPhone, p := range cfg.CustomNumberPrompts {
+				storedClean := stripJID(storedPhone)
+				if storedClean != "" && strings.TrimSpace(p) != "" &&
+					(strings.Contains(normalizedPhone, storedClean) || strings.Contains(storedClean, normalizedPhone)) {
+					customPromptFound = strings.TrimSpace(p)
+					break
+				}
+			}
+		}
+		if customPromptFound != "" {
+			systemPrompt = fmt.Sprintf("[PERAN & INSTRUKSI KHUSUS UNTUK KONTAK %s]:\n%s\n\n"+
+				"PENTING: Kamu HARUS mengikuti instruksi, peran, dan gaya bahasa di atas secara PENUH! "+
+				"Jangan pernah keluar dari peran ini selama percakapan berlangsung.",
+				normalizedPhone, customPromptFound)
 		}
 	}
 

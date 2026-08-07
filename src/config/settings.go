@@ -99,6 +99,10 @@ var (
 	// forwarding and inbound handling always use REST, regardless of this flag.
 	ChatwootImportDBURI = ""
 
+	// BotDBURI is the database URI used by the server-side auto-reply and AI bot engine.
+	// Defaults to local SQLite ("file:storages/bot.db"). Can also accept PostgreSQL (Neon) URI.
+	BotDBURI = "file:storages/bot.db"
+
 	// ChatwootImportPlaceholderMediaMessage controls what is inserted as the
 	// message body for media messages when the importer could not download
 	// the media file (e.g., URL expired). When true, inserts a localized

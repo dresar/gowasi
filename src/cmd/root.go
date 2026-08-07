@@ -12,6 +12,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	domainBot "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/bot"
 	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -21,6 +22,7 @@ import (
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	botrepo "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/bot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
@@ -40,6 +42,9 @@ var (
 	// Chat Storage
 	chatStorageDB   *sql.DB
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+
+	// Bot Storage
+	botRepo domainBot.IBotRepository
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
@@ -238,6 +243,9 @@ func initEnvConfig() {
 	}
 	if envChatwootImportDBURI := viper.GetString("chatwoot_import_db_uri"); envChatwootImportDBURI != "" {
 		config.ChatwootImportDBURI = envChatwootImportDBURI
+	}
+	if envBotDBURI := viper.GetString("bot_db_uri"); envBotDBURI != "" {
+		config.BotDBURI = envBotDBURI
 	}
 	if viper.IsSet("chatwoot_import_placeholder_media_message") {
 		config.ChatwootImportPlaceholderMediaMessage = viper.GetBool("chatwoot_import_placeholder_media_message")
@@ -691,6 +699,38 @@ func initApp() {
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
 	deviceUsecase = usecase.NewDeviceService(dm, appUsecase)
+
+	// Server-side Bot Engine Initialization (SQLite primary, optional PostgreSQL / Neon DB)
+	botDSN := config.BotDBURI
+	if botDSN == "" {
+		botDSN = "file:storages/bot.db"
+	}
+
+	var bRepo domainBot.IBotRepository
+	var bErr error
+
+	if strings.HasPrefix(botDSN, "postgres://") || strings.HasPrefix(botDSN, "postgresql://") {
+		bRepo, bErr = botrepo.NewPostgres(botDSN)
+		if bErr == nil {
+			logrus.Info("[BOT_ENGINE] Server-side Bot Engine initialized with PostgreSQL/Neon DB storage")
+		}
+	} else {
+		bRepo, bErr = botrepo.NewSQLite(botDSN)
+		if bErr == nil {
+			logrus.Info("[BOT_ENGINE] Server-side Bot Engine initialized with SQLite storage (primary)")
+		}
+	}
+
+	if bErr != nil {
+		logrus.Warnf("failed to connect to bot database (%s): %v", botDSN, bErr)
+	} else if bRepo != nil {
+		if err := bRepo.EnsureSchema(ctx); err != nil {
+			logrus.Warnf("failed to ensure bot schema: %v", err)
+		}
+		botRepo = bRepo
+		whatsapp.SetBotRepo(bRepo)
+		botrepo.StartTelegramWorker(ctx, bRepo)
+	}
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

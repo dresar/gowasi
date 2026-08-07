@@ -137,6 +137,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	// App info (version, limits) for standalone UIs; no device required
 	rest.InitRestAppInfo(apiGroup)
 
+	// Server-side Bot management routes (auto-reply rules, AI config, activity logs)
+	rest.InitRestBot(apiGroup, botRepo)
+
 	// Device-scoped operations (header-based)
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
 	registerDeviceScopedRoutes(headerDeviceGroup)

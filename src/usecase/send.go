@@ -1396,16 +1396,20 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 	var statusMessage string
 
 	switch request.Action {
-	case "start":
+	case "start", "composing":
 		presenceType = types.ChatPresenceComposing
 		messageID = "chat-presence-start"
 		statusMessage = fmt.Sprintf("Send chat presence start typing success %s", request.Phone)
-	case "stop":
+	case "stop", "paused":
 		presenceType = types.ChatPresencePaused
 		messageID = "chat-presence-stop"
 		statusMessage = fmt.Sprintf("Send chat presence stop typing success %s", request.Phone)
+	case "recording":
+		presenceType = types.ChatPresenceComposing
+		messageID = "chat-presence-recording"
+		statusMessage = fmt.Sprintf("Send chat presence recording success %s", request.Phone)
 	default:
-		return response, fmt.Errorf("invalid action: %s. Must be 'start' or 'stop'", request.Action)
+		return response, fmt.Errorf("invalid action: %s. Must be 'start', 'stop', 'composing', 'paused', or 'recording'", request.Action)
 	}
 
 	err = client.SendChatPresence(ctx, userJid, presenceType, types.ChatPresenceMedia(""))

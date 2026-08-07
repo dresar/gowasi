@@ -2,8 +2,12 @@
 bin/
 main
 main.exe
+whatsapp.exe
+src/whatsapp.exe
 src/gowa
 .claude
+gowa-ui/node_modules/
+gowa-ui/dist/
 
 # Build artifacts
 src/pkged.go

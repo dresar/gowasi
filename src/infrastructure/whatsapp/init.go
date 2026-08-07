@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainBot "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/bot"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -32,7 +33,12 @@ var (
 	deviceManager *DeviceManager
 	log           waLog.Logger
 	startupTime   = time.Now().Unix()
+	botRepo       domainBot.IBotRepository
 )
+
+func SetBotRepo(repo domainBot.IBotRepository) {
+	botRepo = repo
+}
 
 func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container, jid types.JID) {
 	if db == nil || keysDB == nil || jid.IsEmpty() {

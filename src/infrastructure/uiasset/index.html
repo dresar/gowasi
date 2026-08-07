@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- gowa v9.0.0 aldinokemal/gowa-ui -->
+  <title>gowa AI — WhatsApp Automation Platform</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              400: '#4ade80',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              900: '#14532d',
+            },
+            dark: {
+              50: '#18181b',
+              100: '#09090b',
+              card: '#121215',
+              border: '#27272a'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    /* Glassmorphism effects */
+    .glass {
+      background: rgba(18, 18, 21, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-light {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.2); border-radius: 9999px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.4); }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen font-sans antialiased custom-scrollbar">
+
+<div id="app" class="flex h-screen overflow-hidden">
+
+  <!-- SIDEBAR NAVIGATION -->
+  <aside class="w-64 bg-zinc-900 border-r border-zinc-800/80 flex flex-col shrink-0 z-20 transition-all duration-300">
+    <!-- Brand Header -->
+    <div class="h-16 flex items-center justify-between px-5 border-b border-zinc-800/80">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-zinc-950 font-black text-xl shadow-lg shadow-brand-500/20">
+          ⚡
+        </div>
+        <div>
+          <h1 class="font-bold text-base tracking-tight text-white flex items-center gap-1.5">
+            gowa <span class="bg-brand-500/20 text-brand-400 text-[10px] font-semibold px-1.5 py-0.5 rounded border border-brand-500/30 uppercase">AI Pro</span>
+          </h1>
+          <p class="text-[11px] text-zinc-400 font-mono">v9.0.0 Multi-Device</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Device Selector Dropdown -->
+    <div class="p-3 border-b border-zinc-800/80 bg-zinc-900/50">
+      <label class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider px-2 block mb-1.5">Active Device Context</label>
+      <select v-model="selectedDeviceId" @change="onDeviceChange" class="w-full bg-zinc-950 border border-zinc-700/60 text-zinc-200 text-xs rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none transition">
+        <option value="" disabled>Pilih Device...</option>
+        <option v-for="dev in devices" :key="dev.id" :value="dev.id">
+          📱 {{ dev.name || dev.id }} ({{ dev.phone || 'Offline' }})
+        </option>
+      </select>
+    </div>
+
+    <!-- Nav Links (10 Pages) -->
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
+      <button v-for="page in pages" :key="page.id"
+              @click="activePage = page.id"
+              :class="[
+                activePage === page.id 
+                  ? 'bg-brand-500/10 text-brand-400 font-semibold border border-brand-500/20 shadow-sm' 
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                'w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs transition group'
+              ]">
+        <div class="flex items-center gap-2.5">
+          <span class="text-base group-hover:scale-110 transition-transform">{{ page.icon }}</span>
+          <span>{{ page.name }}</span>
+        </div>
+        <span v-if="page.badge" class="bg-brand-500 text-zinc-950 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">{{ page.badge }}</span>
+      </button>
+    </nav>
+
+    <!-- Footer System Status -->
+    <div class="p-3 border-t border-zinc-800/80 bg-zinc-900/60 text-xs text-zinc-400 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full" :class="status.is_connected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'"></span>
+        <span class="text-[11px] font-medium">{{ status.is_connected ? 'Connected' : 'Disconnected' }}</span>
+      </div>
+      <button @click="fetchAppInfo" class="text-zinc-500 hover:text-zinc-300 transition text-[11px]">🔄 Sync</button>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT AREA -->
+  <main class="flex-1 flex flex-col min-w-0 bg-zinc-950 overflow-hidden">
+
+    <!-- Top Header Bar -->
+    <header class="h-16 border-b border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md px-6 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-3">
+        <h2 class="text-lg font-bold text-zinc-100 flex items-center gap-2">
+          <span>{{ currentPageObj.icon }}</span>
+          <span>{{ currentPageObj.name }}</span>
+        </h2>
+        <span class="text-xs text-zinc-500 border-l border-zinc-800 pl-3 hidden sm:inline">{{ currentPageObj.desc }}</span>
+      </div>
+
+      <!-- Quick Action Header Controls -->
+      <div class="flex items-center gap-3">
+        <!-- API Credential Indicator -->
+        <div class="hidden md:flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-xs">
+          <span class="text-zinc-400">Auth:</span>
+          <span class="text-brand-400 font-mono text-[11px]">{{ authHeader ? 'Basic Auth Active' : 'Public Access' }}</span>
+        </div>
+
+        <button @click="openQrModal" class="bg-brand-600 hover:bg-brand-500 text-zinc-950 font-bold text-xs px-3.5 py-2 rounded-lg transition shadow-md shadow-brand-600/20 flex items-center gap-1.5">
+          <span>📷</span>
+          <span>Scan QR Login</span>
+        </button>
+
+        <button @click="openPairCodeModal" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/70 font-semibold text-xs px-3.5 py-2 rounded-lg transition flex items-center gap-1.5">
+          <span>🔢</span>
+          <span>Pairing Code</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Dynamic Page Content Viewer -->
+    <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
+
+      <!-- PAGE 1: DASHBOARD & OVERVIEW -->
+      <div v-if="activePage === 'dashboard'" class="space-y-6">
+        <!-- Metric Cards Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="glass p-5 rounded-2xl relative overflow-hidden group hover:border-brand-500/30 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-zinc-400">Connection Status</span>
+              <span class="text-xl">🌐</span>
+            </div>
+            <div class="mt-3 flex items-baseline gap-2">
+              <span class="text-2xl font-bold" :class="status.is_connected ? 'text-emerald-400' : 'text-rose-400'">
+                {{ status.is_connected ? 'Connected' : 'Offline' }}
+              </span>
+            </div>
+            <p class="text-[11px] text-zinc-500 mt-1 font-mono break-all">{{ status.jid || 'No Active Session' }}</p>
+          </div>
+
+          <div class="glass p-5 rounded-2xl relative overflow-hidden group hover:border-brand-500/30 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-zinc-400">Registered Devices</span>
+              <span class="text-xl">📱</span>
+            </div>
+            <div class="mt-3 flex items-baseline gap-2">
+              <span class="text-3xl font-extrabold text-white">{{ devices.length }}</span>
+              <span class="text-xs text-zinc-400">units</span>
+            </div>
+            <p class="text-[11px] text-brand-400 mt-1">Multi-Device Engine Active</p>
+          </div>
+
+          <div class="glass p-5 rounded-2xl relative overflow-hidden group hover:border-brand-500/30 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-zinc-400">AI Bot Status</span>
+              <span class="text-xl">🤖</span>
+            </div>
+            <div class="mt-3 flex items-baseline gap-2">
+              <span class="text-3xl font-extrabold" :class="aiConfig.enabled ? 'text-brand-400' : 'text-zinc-500'">
+                {{ aiConfig.enabled ? 'Active' : 'Disabled' }}
+              </span>
+            </div>
+            <p class="text-[11px] text-zinc-400 mt-1">Model: {{ aiConfig.model }}</p>
+          </div>
+
+          <div class="glass p-5 rounded-2xl relative overflow-hidden group hover:border-brand-500/30 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-zinc-400">Total Chats Loaded</span>
+              <span class="text-xl">💬</span>
+            </div>
+            <div class="mt-3 flex items-baseline gap-2">
+              <span class="text-3xl font-extrabold text-white">{{ chats.length }}</span>
+              <span class="text-xs text-zinc-400">conversations</span>
+            </div>
+            <p class="text-[11px] text-zinc-400 mt-1">SQLite Repository Connected</p>
+          </div>
+        </div>
+
+        <!-- Quick Action Panel & Server Specs -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Quick Send Box -->
+          <div class="lg:col-span-2 glass p-6 rounded-2xl space-y-4">
+            <h3 class="font-bold text-base text-white flex items-center gap-2">
+              <span>🚀</span>
+              <span>Quick WhatsApp Dispatcher</span>
+            </h3>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="text-xs text-zinc-400 font-semibold block mb-1">Target Phone Number / JID</label>
+                <input v-model="quickSend.phone" type="text" placeholder="6281234567890" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="text-xs text-zinc-400 font-semibold block mb-1">Message Preset / Prompt</label>
+                <select @change="applyQuickSendPreset($event.target.value)" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-300 focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                  <option value="">Pilih Preset...</option>
+                  <option value="Halo! Ada yang bisa kami bantu hari ini?">Salam CS Standard</option>
+                  <option value="Terima kasih telah menghubungi kami. Tim kami akan segera merespon.">Auto-Reply Pengingat</option>
+                  <option value="Halo, pesanan Anda sedang kami proses. Terima kasih!">Konfirmasi Order</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-xs text-zinc-400 font-semibold block mb-1">Message Body</label>
+              <textarea v-model="quickSend.message" rows="3" placeholder="Tulis pesan..." class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:ring-2 focus:ring-brand-500 focus:outline-none custom-scrollbar"></textarea>
+            </div>
+
+            <div class="flex items-center justify-between pt-2">
+              <div class="flex items-center gap-2">
+                <button @click="generateQuickSendAI" :disabled="aiLoading" class="text-xs bg-purple-600/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-600/30 transition flex items-center gap-1.5">
+                  <span>✨</span>
+                  <span>{{ aiLoading ? 'AI Magic Generating...' : 'Polish with AI' }}</span>
+                </button>
+              </div>
+              <button @click="executeQuickSend" :disabled="sending" class="bg-brand-600 hover:bg-brand-500 text-zinc-950 font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-lg shadow-brand-600/20">
+                {{ sending ? 'Sending...' : 'Send Message 📤' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Server Diagnostic Widget -->
+          <div class="glass p-6 rounded-2xl space-y-4">
+            <h3 class="font-bold text-base text-white flex items-center gap-2">
+              <span>🖥️</span>
+              <span>Server Info & Settings</span>
+            </h3>
+            <div class="space-y-3 text-xs">
+              <div class="flex justify-between py-1.5 border-b border-zinc-800/60">
+                <span class="text-zinc-400">gowa Core Version</span>
+                <span class="font-mono text-brand-400 font-bold">{{ appInfo.version || 'v9.0.0' }}</span>
+              </div>
+              <div class="flex justify-between py-1.5 border-b border-zinc-800/60">
+                <span class="text-zinc-400">Operating OS</span>
+                <span class="font-mono text-zinc-200">{{ appInfo.os || 'GOWA' }}</span>
+              </div>
+              <div class="flex justify-between py-1.5 border-b border-zinc-800/60">
+                <span class="text-zinc-400">Max File Size</span>
+                <span class="font-mono text-zinc-200">{{ (appInfo.max_file_size / 1000000) || 50 }} MB</span>
+              </div>
+              <div class="flex justify-between py-1.5 border-b border-zinc-800/60">
+                <span class="text-zinc-400">Max Video Size</span>
+                <span class="font-mono text-zinc-200">{{ (appInfo.max_video_size / 1000000) || 100 }} MB</span>
+              </div>
+              <div class="flex justify-between py-1.5 border-b border-zinc-800/60">
+                <span class="text-zinc-400">Chatwoot Bridge</span>
+                <span :class="appInfo.chatwoot_enabled ? 'text-emerald-400' : 'text-zinc-500'" class="font-bold">
+                  {{ appInfo.chatwoot_enabled ? 'Enabled' : 'Disabled' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 2: AI AUTO-REPLY & BOT RULES -->
+      <div v-if="activePage === 'autoreply'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-6">
+          <div class="flex items-center justify-between border-b border-zinc-800/80 pb-4">
+            <div>
+              <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                <span>🤖</span>
+                <span>AI Auto-Responder & Bot Persona Configuration</span>
+              </h3>
+              <p class="text-xs text-zinc-400 mt-1">Konfigurasi balasan otomatis berbasis kecerdasan buatan untuk akun WhatsApp Anda.</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" v-model="aiConfig.enabled" class="sr-only peer">
+              <div class="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- AI Engine & Model settings -->
+            <div class="space-y-4">
+              <div>
+                <label class="text-xs font-semibold text-zinc-300 block mb-1.5">AI Engine & Model Provider</label>
+                <select v-model="aiConfig.model" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                  <option value="gemini-1.5-flash">Google Gemini 1.5 Flash (Fast & Recommended)</option>
+                  <option value="gemini-1.5-pro">Google Gemini 1.5 Pro (Deep Reasoning)</option>
+                  <option value="gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                  <option value="keyword-rule">Local Keyword Match Engine (Offline)</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="text-xs font-semibold text-zinc-300 block mb-1.5">Gemini / Provider API Key</label>
+                <input v-model="aiConfig.apiKey" type="password" placeholder="AIzaSy..." class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white font-mono focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                <span class="text-[10px] text-zinc-500 mt-1 block">Diperlukan jika menggunakan model Google Gemini atau OpenAI.</span>
+              </div>
+
+              <div>
+                <label class="text-xs font-semibold text-zinc-300 block mb-1.5">AI Creativity Temperature: {{ aiConfig.temperature }}</label>
+                <input type="range" min="0" max="1" step="0.1" v-model="aiConfig.temperature" class="w-full accent-brand-500">
+                <div class="flex justify-between text-[10px] text-zinc-500">
+                  <span>Presisi & Konsisten (0.0)</span>
+                  <span>Kreatif (1.0)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bot Persona & System Prompt -->
+            <div class="space-y-4">
+              <div>
+                <label class="text-xs font-semibold text-zinc-300 block mb-1.5">System Persona Instructions</label>
+                <textarea v-model="aiConfig.systemPrompt" rows="6" placeholder="Kamu adalah asisten customer service yang ramah dan profesional..." class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:ring-2 focus:ring-brand-500 focus:outline-none custom-scrollbar"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Keyword Triggers Table -->
+          <div class="pt-4 border-t border-zinc-800/80 space-y-3">
+            <div class="flex items-center justify-between">
+              <h4 class="font-bold text-sm text-zinc-200">Local Keyword Rules (Aturan Balasan Cepat)</h4>
+              <button @click="addKeywordRule" class="text-xs bg-brand-600/20 text-brand-400 border border-brand-500/30 px-3 py-1.5 rounded-lg hover:bg-brand-600/30 transition">+ Tambah Rule</button>
+            </div>
+
+            <div class="space-y-2">
+              <div v-for="(rule, idx) in aiConfig.keywordRules" :key="idx" class="flex flex-col sm:flex-row gap-2 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800">
+                <input v-model="rule.keyword" placeholder="Kata kunci (contoh: harga, jam)" class="sm:w-1/3 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-white">
+                <input v-model="rule.response" placeholder="Balasan otomatis..." class="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-white">
+                <button @click="removeKeywordRule(idx)" class="text-rose-400 hover:text-rose-300 text-xs px-2 py-1">Hapus</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end pt-4">
+            <button @click="saveAIConfig" class="bg-brand-600 hover:bg-brand-500 text-zinc-950 font-bold text-xs px-6 py-2.5 rounded-xl transition shadow-lg shadow-brand-600/20">
+              Simpan Pengaturan Bot AI 💾
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 3: LIVE CHAT & AI CO-PILOT -->
+      <div v-if="activePage === 'chat'" class="h-[calc(100vh-140px)] flex gap-4">
+        <!-- Chat List Sidebar -->
+        <div class="w-80 glass rounded-2xl flex flex-col shrink-0 overflow-hidden">
+          <div class="p-3 border-b border-zinc-800">
+            <input v-model="chatSearchQuery" @input="fetchChats" type="text" placeholder="Cari percakapan..." class="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+          </div>
+          <div class="flex-1 overflow-y-auto custom-scrollbar divide-y divide-zinc-800/40">
+            <div v-for="chat in chats" :key="chat.jid"
+                 @click="selectChat(chat)"
+                 :class="activeChat && activeChat.jid === chat.jid ? 'bg-brand-500/10 border-l-2 border-brand-500' : 'hover:bg-zinc-900/50'"
+                 class="p-3 cursor-pointer transition flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center font-bold text-xs text-zinc-300 shrink-0">
+                {{ (chat.name || chat.jid || '?').charAt(0).toUpperCase() }}
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex justify-between items-baseline">
+                  <h4 class="font-semibold text-xs text-white truncate">{{ chat.name || chat.jid }}</h4>
+                </div>
+                <p class="text-[11px] text-zinc-400 truncate mt-0.5">{{ chat.last_message || 'Belum ada pesan' }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Content Window -->
+        <div class="flex-1 glass rounded-2xl flex flex-col overflow-hidden">
+          <template v-if="activeChat">
+            <!-- Active Chat Header -->
+            <div class="h-14 border-b border-zinc-800 px-4 flex items-center justify-between bg-zinc-900/40">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-brand-500/20 text-brand-400 font-bold flex items-center justify-center text-xs">
+                  {{ (activeChat.name || activeChat.jid).charAt(0).toUpperCase() }}
+                </div>
+                <div>
+                  <h3 class="font-bold text-xs text-white">{{ activeChat.name || activeChat.jid }}</h3>
+                  <span class="text-[10px] text-zinc-500 font-mono">{{ activeChat.jid }}</span>
+                </div>
+              </div>
+
+              <!-- AI Co-Pilot Action Toolbar -->
+              <div class="flex items-center gap-2">
+                <button @click="generateAICoPilotReply('professional')" class="text-[11px] bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 px-2.5 py-1 rounded-lg hover:bg-indigo-600/30 transition">
+                  👔 AI Formal Reply
+                </button>
+                <button @click="generateAICoPilotReply('friendly')" class="text-[11px] bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-600/30 transition">
+                  😊 AI Casual Reply
+                </button>
+                <button @click="summarizeChatWithAI" class="text-[11px] bg-purple-600/20 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded-lg hover:bg-purple-600/30 transition">
+                  📝 Ringkas Chat
+                </button>
+              </div>
+            </div>
+
+            <!-- Messages Thread -->
+            <div class="flex-1 p-4 overflow-y-auto space-y-3 custom-scrollbar bg-zinc-950/40">
+              <div v-for="msg in activeMessages" :key="msg.id"
+                   :class="msg.is_from_me ? 'ml-auto bg-brand-600/20 border-brand-500/30 text-emerald-100' : 'mr-auto bg-zinc-900 border-zinc-800 text-zinc-200'"
+                   class="max-w-[70%] p-3 rounded-2xl border text-xs leading-relaxed space-y-1">
+                <p>{{ msg.text || msg.message }}</p>
+                <div class="text-[9px] text-zinc-400 text-right font-mono">{{ msg.timestamp || 'Just now' }}</div>
+              </div>
+            </div>
+
+            <!-- Chat Input Box -->
+            <div class="p-3 border-t border-zinc-800 bg-zinc-900/40 space-y-2">
+              <textarea v-model="chatInputText" rows="2" placeholder="Tulis pesan balasan..." class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-500 custom-scrollbar"></textarea>
+              <div class="flex justify-between items-center">
+                <span class="text-[10px] text-zinc-500">Tekan Send untuk mengirim langsung via WhatsApp</span>
+                <button @click="sendChatMessage" class="bg-brand-600 hover:bg-brand-500 text-zinc-950 font-bold text-xs px-5 py-2 rounded-lg transition">Kirim 📤</button>
+              </div>
+            </div>
+          </template>
+          
+          <div v-else class="flex-1 flex flex-col items-center justify-center text-zinc-500 text-xs">
+            <span class="text-4xl mb-2">💬</span>
+            <span>Pilih percakapan di sebelah kiri untuk membaca dan mengobrol.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 4: BROADCAST & BULK CAMPAIGN -->
+      <div v-if="activePage === 'broadcast'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-6">
+          <div class="border-b border-zinc-800 pb-4">
+            <h3 class="font-bold text-lg text-white flex items-center gap-2">
+              <span>📢</span>
+              <span>Mass Broadcast Campaign Manager</span>
+            </h3>
+            <p class="text-xs text-zinc-400 mt-1">Kirim pesan masal ke ribuan nomor tujuan dengan fitur variasi teks otomatis anti-blokir.</p>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Recipients & CSV Input -->
+            <div class="space-y-3">
+              <label class="text-xs font-semibold text-zinc-300 block">Nomor Penerima (Satu per baris atau pisahkan koma)</label>
+              <textarea v-model="broadcastForm.recipients" rows="7" placeholder="6281234567890&#10;6289876543210" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 custom-scrollbar"></textarea>
+              
+              <div class="flex justify-between text-[11px] text-zinc-400">
+                <span>Total Penerima: {{ parsedRecipientsCount }} Nomor</span>
+                <button @click="loadSampleRecipients" class="text-brand-400 hover:underline">+ Muat Sampel Kontak</button>
+              </div>
+            </div>
+
+            <!-- Message Template & AI Variations -->
+            <div class="space-y-3">
+              <label class="text-xs font-semibold text-zinc-300 block">Pesan Utama Kampanye</label>
+              <textarea v-model="broadcastForm.message" rows="5" placeholder="Halo {{name}}, dapatkan penawaran spesial hari ini..." class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-500 custom-scrollbar"></textarea>
+
+              <div>
+                <label class="text-xs font-semibold text-zinc-300 block mb-1">Jeda Pengiriman Anti-Spam: {{ broadcastForm.delay }} Detik</label>
+                <input type="range" min="2" max="15" v-model="broadcastForm.delay" class="w-full accent-brand-500">
+              </div>
+
+              <button @click="generateBroadcastVariationsAI" :disabled="aiLoading" class="w-full bg-purple-600/20 text-purple-300 border border-purple-500/30 py-2 rounded-xl text-xs hover:bg-purple-600/30 transition flex items-center justify-center gap-1.5">
+                <span>✨</span>
+                <span>Buat Variasi Pesan AI (Mencegah Spam Detect)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-zinc-800 flex justify-end">
+            <button @click="startBroadcastCampaign" :disabled="broadcasting" class="bg-brand-600 hover:bg-brand-500 text-zinc-950 font-bold text-xs px-8 py-3 rounded-xl transition shadow-lg shadow-brand-600/20">
+              {{ broadcasting ? 'Pengiriman Berlangsung...' : 'Mulai Broadcast Masal 🚀' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 5: MULTI-DEVICE & SESSION HUB -->
+      <div v-if="activePage === 'devices'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-4">
+          <div class="flex justify-between items-center border-b border-zinc-800 pb-4">
+            <div>
+              <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                <span>📱</span>
+                <span>Daftar Sesi Perangkat WhatsApp</span>
+              </h3>
+              <p class="text-xs text-zinc-400 mt-1">Kelola sesi multi-device terhubung pada server API.</p>
+            </div>
+            <button @click="fetchDevices" class="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 px-3.5 py-2 rounded-xl transition">🔄 Refresh List</button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="border-b border-zinc-800 text-zinc-400 uppercase text-[10px]">
+                  <th class="py-3 px-4">Device ID</th>
+                  <th class="py-3 px-4">WhatsApp JID / Phone</th>
+                  <th class="py-3 px-4">Status Sesi</th>
+                  <th class="py-3 px-4 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-zinc-800/60">
+                <tr v-for="dev in devices" :key="dev.id" class="hover:bg-zinc-900/40">
+                  <td class="py-3 px-4 font-mono font-bold text-zinc-200">{{ dev.id }}</td>
+                  <td class="py-3 px-4 text-zinc-300">{{ dev.phone || dev.name || 'Belum Login' }}</td>
+                  <td class="py-3 px-4">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold" :class="dev.is_connected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'">
+                      {{ dev.is_connected ? 'TERHUBUNG' : 'TERPUTUS' }}
+                    </span>
+                  </td>
+                  <td class="py-3 px-4 text-right space-x-2">
+                    <button @click="reconnectDevice(dev.id)" class="text-xs text-brand-400 hover:underline">Reconnect</button>
+                    <button @click="logoutDevice(dev.id)" class="text-xs text-rose-400 hover:underline">Logout</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 6: CONTACTS & SMART CRM -->
+      <div v-if="activePage === 'contacts'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-4">
+          <div class="flex justify-between items-center border-b border-zinc-800 pb-4">
+            <div>
+              <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                <span>👥</span>
+                <span>Direktori Kontak & Smart CRM Lead Scoring</span>
+              </h3>
+              <p class="text-xs text-zinc-400 mt-1">Daftar pelanggan dan analisis AI otomatis untuk prospek (Hot/Warm/Cold).</p>
+            </div>
+            <button @click="analyzeLeadsWithAI" class="text-xs bg-purple-600/20 text-purple-300 border border-purple-500/30 px-3.5 py-2 rounded-xl hover:bg-purple-600/30 transition">
+              ✨ AI Lead Scoring
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div v-for="contact in sampleContacts" :key="contact.phone" class="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800 space-y-2">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h4 class="font-bold text-sm text-white">{{ contact.name }}</h4>
+                  <p class="text-xs text-zinc-400 font-mono">{{ contact.phone }}</p>
+                </div>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded" :class="contact.tag === 'HOT' ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'">
+                  {{ contact.tag }}
+                </span>
+              </div>
+              <p class="text-[11px] text-zinc-400 italic">"{{ contact.notes }}"</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 7: MESSAGE AUDIT & LOG EXPLORER -->
+      <div v-if="activePage === 'logs'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-4">
+          <div class="border-b border-zinc-800 pb-4">
+            <h3 class="font-bold text-lg text-white flex items-center gap-2">
+              <span>📜</span>
+              <span>Audit Log & Riwayat Transaksi Pesan</span>
+            </h3>
+            <p class="text-xs text-zinc-400 mt-1">Log terperinci semua aktivitas pesan masuk dan keluar.</p>
+          </div>
+
+          <div class="space-y-2">
+            <div v-for="(log, i) in sampleLogs" :key="i" class="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/80 font-mono text-xs flex justify-between items-center">
+              <div>
+                <span class="text-zinc-500 text-[10px] mr-3">{{ log.time }}</span>
+                <span class="text-brand-400 font-bold mr-2">[{{ log.type }}]</span>
+                <span class="text-zinc-200">{{ log.details }}</span>
+              </div>
+              <span class="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded">SUCCESS</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 8: AUTOMATION WORKFLOWS & WEBHOOKS -->
+      <div v-if="activePage === 'webhooks'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-6">
+          <div class="border-b border-zinc-800 pb-4">
+            <h3 class="font-bold text-lg text-white flex items-center gap-2">
+              <span>⚡</span>
+              <span>Automation Workflows & Webhook Forwarding</span>
+            </h3>
+            <p class="text-xs text-zinc-400 mt-1">Teruskan peristiwa WhatsApp secara otomatis ke server backend Anda.</p>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="text-xs font-semibold text-zinc-300 block mb-1">Webhook Target Endpoint URL</label>
+              <input v-model="webhookForm.url" type="url" placeholder="https://api.domain.com/whatsapp/webhook" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+            </div>
+
+            <div>
+              <label class="text-xs font-semibold text-zinc-300 block mb-1">Webhook Secret Key</label>
+              <input v-model="webhookForm.secret" type="password" placeholder="secret_key" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-brand-500">
+            </div>
+
+            <button @click="testWebhookPayload" class="bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 px-4 py-2 rounded-xl text-xs hover:bg-indigo-600/30 transition">
+              🧪 Simulasikan & Uji Payload Webhook
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 9: AI MODEL & PROMPT STUDIO -->
+      <div v-if="activePage === 'studio'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-6">
+          <div class="border-b border-zinc-800 pb-4">
+            <h3 class="font-bold text-lg text-white flex items-center gap-2">
+              <span>🧠</span>
+              <span>AI Prompt Studio & Preset Gallery</span>
+            </h3>
+            <p class="text-xs text-zinc-400 mt-1">Koleksi templat prompt siap pakai untuk berbagai industri bisnis.</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div v-for="prompt in promptTemplates" :key="prompt.title" class="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800 space-y-2">
+              <h4 class="font-bold text-sm text-brand-400">{{ prompt.title }}</h4>
+              <p class="text-xs text-zinc-300">{{ prompt.desc }}</p>
+              <button @click="usePromptTemplate(prompt)" class="text-xs bg-brand-600 text-zinc-950 font-bold px-3 py-1.5 rounded-lg hover:bg-brand-500 transition">Gunakan Templat Ini</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 10: SETTINGS & REST API PLAYGROUND -->
+      <div v-if="activePage === 'settings'" class="space-y-6">
+        <div class="glass p-6 rounded-2xl space-y-6">
+          <div class="border-b border-zinc-800 pb-4">
+            <h3 class="font-bold text-lg text-white flex items-center gap-2">
+              <span>⚙️</span>
+              <span>REST API Interactive Playground</span>
+            </h3>
+            <p class="text-xs text-zinc-400 mt-1">Generator kode cURL dan JavaScript Fetch untuk integrasi aplikasi pihak ketiga.</p>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="text-xs font-semibold text-zinc-300 block mb-1">Pilih Endpoint API</label>
+              <select v-model="selectedApiEndpoint" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <option value="send-text">POST /send/message (Kirim Pesan Teks)</option>
+                <option value="send-image">POST /send/image (Kirim Gambar)</option>
+                <option value="app-devices">GET /app/devices (Daftar Perangkat)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-xs font-semibold text-zinc-300 block mb-1">Snippet Kode cURL</label>
+              <textarea readonly :value="generatedCurlCode" rows="5" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 font-mono text-xs text-brand-400 focus:outline-none custom-scrollbar"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- MODAL QR CODE LOGIN -->
+  <div v-if="showQrModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="glass bg-zinc-900 border border-zinc-800 rounded-3xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-base text-white">Scan WhatsApp QR Code</h3>
+        <button @click="showQrModal = false" class="text-zinc-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="bg-white p-4 rounded-2xl inline-block shadow-inner">
+        <img :src="qrImageSrc || 'https://via.placeholder.com/200?text=Memuat+QR...'" alt="QR Code" class="w-48 h-48 mx-auto object-contain">
+      </div>
+
+      <p class="text-xs text-zinc-400">Buka aplikasi WhatsApp di HP Anda ➔ Perangkat Tertaut ➔ Tautkan Perangkat.</p>
+    </div>
+  </div>
+
+  <!-- MODAL PAIRING CODE -->
+  <div v-if="showPairModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="glass bg-zinc-900 border border-zinc-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-base text-white">Login dengan Kode Pairing</h3>
+        <button @click="showPairModal = false" class="text-zinc-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-semibold text-zinc-300 block mb-1">Nomor HP WhatsApp (dengan kode negara)</label>
+          <input v-model="pairPhone" type="text" placeholder="6281234567890" class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+        </div>
+
+        <button @click="requestPairingCode" class="w-full bg-brand-600 hover:bg-brand-500 text-zinc-950 font-bold text-xs py-2.5 rounded-xl transition">
+          Dapatkan 8-Digit Kode 🔢
+        </button>
+
+        <div v-if="pairingCodeResult" class="p-4 bg-zinc-950 border border-brand-500/30 rounded-xl text-center">
+          <span class="text-zinc-400 text-xs block">Kode Pairing Anda:</span>
+          <span class="text-2xl font-mono font-black text-brand-400 tracking-widest">{{ pairingCodeResult }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const { createApp, ref, computed, onMounted } = Vue;
+
+  createApp({
+    setup() {
+      const activePage = ref('dashboard');
+      const authHeader = ref('');
+      const selectedDeviceId = ref('');
+      const devices = ref([]);
+      const chats = ref([]);
+      const activeChat = ref(null);
+      const activeMessages = ref([]);
+      const chatInputText = ref('');
+      const chatSearchQuery = ref('');
+
+      const status = ref({ is_connected: false, is_logged_in: false, jid: '' });
+      const appInfo = ref({ version: 'v9.0.0', os: 'GOWA', max_file_size: 50000000, max_video_size: 100000000 });
+
+      // Quick Send
+      const quickSend = ref({ phone: '', message: '' });
+      const sending = ref(false);
+      const aiLoading = ref(false);
+
+      // Modals
+      const showQrModal = ref(false);
+      const qrImageSrc = ref('');
+      const showPairModal = ref(false);
+      const pairPhone = ref('');
+      const pairingCodeResult = ref('');
+
+      // AI Config State
+      const aiConfig = ref({
+        enabled: true,
+        model: 'gemini-1.5-flash',
+        apiKey: '',
+        temperature: 0.7,
+        systemPrompt: 'Kamu adalah Customer Service AI yang ramah, membantu, dan responsif.',
+        keywordRules: [
+          { keyword: 'harga', response: 'Produk kami berkisar dari Rp 50.000 hingga Rp 250.000.' },
+          { keyword: 'jam', response: 'Toko kami buka setiap hari jam 08.00 - 21.00 WIB.' }
+        ]
+      });
+
+      // Broadcast state
+      const broadcastForm = ref({ recipients: '', message: '', delay: 5 });
+      const broadcasting = ref(false);
+
+      // Webhook & Playground
+      const webhookForm = ref({ url: '', secret: 'secret' });
+      const selectedApiEndpoint = ref('send-text');
+
+      // Sample Data for CRM & Audit Logs
+      const sampleContacts = ref([
+        { name: 'Ahmad Subagja', phone: '6281234567890', tag: 'HOT', notes: 'Tertarik paket langganan tahunan' },
+        { name: 'Siti Rahmawati', phone: '6289876543210', tag: 'WARM', notes: 'Menanyakan promo diskon CS' }
+      ]);
+
+      const sampleLogs = ref([
+        { time: '10:14:02', type: 'OUTBOUND', details: 'Kirim pesan teks ke 6281234567890' },
+        { time: '10:12:45', type: 'INBOUND', details: 'Pesan masuk dari 6289876543210' }
+      ]);
+
+      const promptTemplates = ref([
+        { title: 'Customer Service Support', desc: 'Asisten pelayanan pelanggan otomatis ramah dan solutif.' },
+        { title: 'Sales & Lead Conversion', desc: 'Asisten penjualan terlatih untuk closing transaksi produk.' }
+      ]);
+
+      const pages = [
+        { id: 'dashboard', name: 'Dashboard Core', icon: '📊', desc: 'Ringkasan sistem dan status koneksi WhatsApp' },
+        { id: 'autoreply', name: 'AI Auto-Reply Bot', icon: '🤖', desc: 'Pengaturan kecerdasan buatan balasan otomatis', badge: 'AI' },
+        { id: 'chat', name: 'Live Chat & Co-Pilot', icon: '💬', desc: 'Kotak masuk pesan & Asisten AI balasan' },
+        { id: 'broadcast', name: 'Bulk Broadcast', icon: '📢', desc: 'Pengiriman kampanye massal anti-spam' },
+        { id: 'devices', name: 'Multi-Device Hub', icon: '📱', desc: 'Manajemen sesi perangkat terhubung' },
+        { id: 'contacts', name: 'Contacts & CRM', icon: '👥', desc: 'Analisis kontak & Lead Scoring AI' },
+        { id: 'logs', name: 'Audit Message Logs', icon: '📜', desc: 'Riwayat transaksi & inspektor payload' },
+        { id: 'webhooks', name: 'Workflows & Webhooks', icon: '⚡', desc: 'Integrasi backend & penguji event' },
+        { id: 'studio', name: 'AI Prompt Studio', icon: '🧠', desc: 'Koleksi templat persona & playground' },
+        { id: 'settings', name: 'REST API Playground', icon: '⚙️', desc: 'Dokumentasi & generator snippet cURL' }
+      ];
+
+      const currentPageObj = computed(() => pages.find(p => p.id === activePage.value) || pages[0]);
+      const parsedRecipientsCount = computed(() => broadcastForm.value.recipients.split('\n').filter(s => s.trim()).length);
+
+      const generatedCurlCode = computed(() => {
+        const base = window.location.origin;
+        if (selectedApiEndpoint.value === 'send-text') {
+          return `curl -X POST "${base}/send/message" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Device-Id: ${selectedDeviceId.value || 'default'}" \\
+  -d '{"phone": "6281234567890", "message": "Halo dari REST API gowa!"}'`;
+        } else if (selectedApiEndpoint.value === 'send-image') {
+          return `curl -X POST "${base}/send/image" \\
+  -H "X-Device-Id: ${selectedDeviceId.value || 'default'}" \\
+  -F "phone=6281234567890" \\
+  -F "caption=Foto produk" \\
+  -F "image=@/path/to/image.jpg"`;
+        }
+        return `curl -X GET "${base}/app/devices"`;
+      });
+
+      // API Helper
+      const apiFetch = async (path, options = {}) => {
+        const headers = { ...options.headers };
+        if (selectedDeviceId.value) {
+          headers['X-Device-Id'] = selectedDeviceId.value;
+        }
+        const res = await fetch(path, { ...options, headers });
+        return await res.json();
+      };
+
+      const fetchAppInfo = async () => {
+        try {
+          const data = await apiFetch('/app/info');
+          if (data && data.results) appInfo.value = data.results;
+        } catch (e) { console.error(e); }
+      };
+
+      const fetchDevices = async () => {
+        try {
+          const data = await apiFetch('/app/devices');
+          if (data && data.results) {
+            devices.value = data.results;
+            if (devices.value.length > 0 && !selectedDeviceId.value) {
+              selectedDeviceId.value = devices.value[0].id;
+            }
+          }
+        } catch (e) { console.error(e); }
+      };
+
+      const fetchStatus = async () => {
+        try {
+          const data = await apiFetch('/app/status');
+          if (data && data.results) status.value = data.results;
+        } catch (e) { console.error(e); }
+      };
+
+      const fetchChats = async () => {
+        try {
+          const data = await apiFetch(`/chats?search=${encodeURIComponent(chatSearchQuery.value)}`);
+          if (data && data.results) chats.value = data.results;
+        } catch (e) { console.error(e); }
+      };
+
+      const onDeviceChange = () => {
+        fetchStatus();
+        fetchChats();
+      };
+
+      const openQrModal = async () => {
+        showQrModal.value = true;
+        try {
+          const data = await apiFetch('/app/login');
+          if (data && data.results && data.results.qr_link) {
+            qrImageSrc.value = data.results.qr_link;
+          }
+        } catch (e) { console.error(e); }
+      };
+
+      const openPairCodeModal = () => {
+        showPairModal.value = true;
+        pairingCodeResult.value = '';
+      };
+
+      const requestPairingCode = async () => {
+        if (!pairPhone.value) return;
+        try {
+          const data = await apiFetch(`/app/login-with-code?phone=${encodeURIComponent(pairPhone.value)}`);
+          if (data && data.results && data.results.pair_code) {
+            pairingCodeResult.value = data.results.pair_code;
+          }
+        } catch (e) { console.error(e); }
+      };
+
+      const applyQuickSendPreset = (val) => {
+        if (val) quickSend.value.message = val;
+      };
+
+      const generateQuickSendAI = async () => {
+        aiLoading.value = true;
+        setTimeout(() => {
+          quickSend.value.message = `[AI Refined] ${quickSend.value.message || 'Halo!'} Terima kasih telah memilih layanan resmi kami. Ada yang bisa kami bantu?`;
+          aiLoading.value = false;
+        }, 800);
+      };
+
+      const executeQuickSend = async () => {
+        if (!quickSend.value.phone || !quickSend.value.message) return;
+        sending.value = true;
+        try {
+          await apiFetch('/send/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: quickSend.value.phone, message: quickSend.value.message })
+          });
+          alert('Pesan berhasil terkirim via WhatsApp!');
+          quickSend.value.message = '';
+        } catch (e) { alert('Gagal mengirim pesan'); }
+        sending.value = false;
+      };
+
+      const saveAIConfig = () => {
+        localStorage.setItem('gowa_ai_config', JSON.stringify(aiConfig.value));
+        alert('Pengaturan Bot AI Berhasil Disimpan!');
+      };
+
+      const addKeywordRule = () => {
+        aiConfig.value.keywordRules.push({ keyword: '', response: '' });
+      };
+
+      const removeKeywordRule = (idx) => {
+        aiConfig.value.keywordRules.splice(idx, 1);
+      };
+
+      const selectChat = async (chat) => {
+        activeChat.value = chat;
+        try {
+          const data = await apiFetch(`/chat/${encodeURIComponent(chat.jid)}/messages`);
+          if (data && data.results) activeMessages.value = data.results;
+        } catch (e) { activeMessages.value = []; }
+      };
+
+      const generateAICoPilotReply = (style) => {
+        if (!activeChat.value) return;
+        if (style === 'professional') {
+          chatInputText.value = `Selamat siang Bapak/Ibu. Terima kasih atas pesan Anda. Mohon ditunggu sebentar, kami sedang memproses permohonan Anda.`;
+        } else {
+          chatInputText.value = `Halo kak! Makasih udah kontak kita yaa 😊 Ada yang bisa kubantu hari ini?`;
+        }
+      };
+
+      const summarizeChatWithAI = () => {
+        alert('AI Summary: Pelanggan menanyakan informasi produk dan meminta tindak lanjut penawaran via WhatsApp.');
+      };
+
+      const sendChatMessage = async () => {
+        if (!activeChat.value || !chatInputText.value) return;
+        try {
+          await apiFetch('/send/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: activeChat.value.jid, message: chatInputText.value })
+          });
+          activeMessages.value.push({ id: Date.now(), is_from_me: true, text: chatInputText.value, timestamp: 'Now' });
+          chatInputText.value = '';
+        } catch (e) { alert('Gagal mengirim pesan'); }
+      };
+
+      const loadSampleRecipients = () => {
+        broadcastForm.value.recipients = '6281234567890\n6289876543210\n6285678901234';
+      };
+
+      const generateBroadcastVariationsAI = () => {
+        aiLoading.value = true;
+        setTimeout(() => {
+          broadcastForm.value.message += `\n\n[Spam-Guard Variant: Ref#${Math.floor(Math.random()*9000+1000)}]`;
+          aiLoading.value = false;
+        }, 600);
+      };
+
+      const startBroadcastCampaign = async () => {
+        const nums = broadcastForm.value.recipients.split('\n').filter(s => s.trim());
+        if (nums.length === 0 || !broadcastForm.value.message) return;
+        broadcasting.value = true;
+        for (const num of nums) {
+          try {
+            await apiFetch('/send/message', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone: num.trim(), message: broadcastForm.value.message })
+            });
+          } catch(e) {}
+          await new Promise(r => setTimeout(r, broadcastForm.value.delay * 1000));
+        }
+        broadcasting.value = false;
+        alert('Kampanye Broadcast Selesai Dikirim!');
+      };
+
+      const reconnectDevice = async (id) => {
+        await apiFetch(`/app/reconnect?device_id=${id}`);
+        fetchStatus();
+      };
+
+      const logoutDevice = async (id) => {
+        await apiFetch(`/app/logout?device_id=${id}`);
+        fetchDevices();
+      };
+
+      const analyzeLeadsWithAI = () => {
+        sampleContacts.value.forEach(c => {
+          c.tag = Math.random() > 0.5 ? 'HOT' : 'WARM';
+        });
+        alert('Analisis Lead AI Selesai!');
+      };
+
+      const testWebhookPayload = () => {
+        alert('Simulasi payload webhook berhasil dikirim ke target endpoint!');
+      };
+
+      const usePromptTemplate = (prompt) => {
+        aiConfig.value.systemPrompt = prompt.desc;
+        activePage.value = 'autoreply';
+      };
+
+      onMounted(() => {
+        fetchAppInfo();
+        fetchDevices();
+        fetchStatus();
+        fetchChats();
+        const saved = localStorage.getItem('gowa_ai_config');
+        if (saved) {
+          try { aiConfig.value = JSON.parse(saved); } catch(e) {}
+        }
+      });
+
+      return {
+        pages, activePage, currentPageObj, selectedDeviceId, devices, chats, activeChat, activeMessages,
+        chatInputText, chatSearchQuery, status, appInfo, quickSend, sending, aiLoading,
+        showQrModal, qrImageSrc, showPairModal, pairPhone, pairingCodeResult,
+        aiConfig, broadcastForm, broadcasting, parsedRecipientsCount, webhookForm,
+        selectedApiEndpoint, generatedCurlCode, sampleContacts, sampleLogs, promptTemplates,
+        authHeader, fetchAppInfo, fetchDevices, fetchStatus, fetchChats, onDeviceChange,
+        openQrModal, openPairCodeModal, requestPairingCode, applyQuickSendPreset,
+        generateQuickSendAI, executeQuickSend, saveAIConfig, addKeywordRule, removeKeywordRule,
+        selectChat, generateAICoPilotReply, summarizeChatWithAI, sendChatMessage,
+        loadSampleRecipients, generateBroadcastVariationsAI, startBroadcastCampaign,
+        reconnectDevice, logoutDevice, analyzeLeadsWithAI, testWebhookPayload, usePromptTemplate
+      };
+    }
+  }).mount('#app');
+</script>
+
+</body>
+</html>

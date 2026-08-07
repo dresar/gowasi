@@ -504,7 +504,7 @@ func ValidateSendPresence(ctx context.Context, request domainSend.PresenceReques
 func ValidateSendChatPresence(ctx context.Context, request domainSend.ChatPresenceRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.Action, validation.Required, validation.In("start", "stop")),
+		validation.Field(&request.Action, validation.Required, validation.In("start", "stop", "composing", "paused", "recording")),
 	)
 
 	if err != nil {

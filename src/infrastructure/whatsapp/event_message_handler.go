@@ -8,7 +8,9 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	botrepo "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/bot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -56,8 +58,49 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	// Handle auto-reply if configured
 	handleAutoReply(ctx, evt, chatStorageRepo, client)
 
+	// Server-side Bot Engine (Auto-Reply + Typing presence + AI fallback)
+	if !evt.Info.IsFromMe && botRepo != nil {
+		msgText := extractTextFromEvent(evt)
+		isGroup := strings.HasSuffix(evt.Info.Chat.String(), "@g.us")
+		botrepo.ProcessMessage(ctx, evt.Info.ID, evt.Info.Chat.String(), isGroup, msgText, botRepo, client)
+	}
+
 	// Forward to webhook if configured
 	handleWebhookForward(ctx, evt, client)
+
+	// Broadcast INCOMING message events over WebSocket to UI
+	if !evt.Info.IsFromMe {
+		if webhookEvent, err := createWebhookEvent(ctx, client, evt); err == nil && webhookEvent != nil {
+			websocket.Broadcast <- websocket.BroadcastMessage{
+				Code:    "MESSAGE_RECEIVED",
+				Message: "Incoming message received",
+				Result:  webhookEvent.Payload,
+			}
+		}
+	}
+}
+
+func extractTextFromEvent(evt *events.Message) string {
+	if evt == nil || evt.Message == nil {
+		return ""
+	}
+	msg := utils.UnwrapMessage(evt.Message)
+	if text := msg.GetConversation(); text != "" {
+		return text
+	}
+	if ext := msg.GetExtendedTextMessage(); ext != nil {
+		return ext.GetText()
+	}
+	if img := msg.GetImageMessage(); img != nil {
+		return img.GetCaption()
+	}
+	if vid := msg.GetVideoMessage(); vid != nil {
+		return vid.GetCaption()
+	}
+	if doc := msg.GetDocumentMessage(); doc != nil {
+		return doc.GetCaption()
+	}
+	return ""
 }
 
 func buildMessageMetaParts(evt *events.Message) []string {

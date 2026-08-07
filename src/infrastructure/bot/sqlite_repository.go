@@ -475,6 +475,7 @@ func defaultAIConfig(deviceID string) domainBot.AIConfig {
 		CustomSkills:        []string{"non_formal_tone", "deep_context_memory", "auto_schedule"},
 		AdminNumbers:        []string{"6282392115909"},
 		TelegramBotToken:    "7969028715:AAENtmQ3tpwlY0QrJpdRlRLIEaB2_UMmFzo",
+		TelegramAdminChatID: "7896674035",
 	}
 }
 

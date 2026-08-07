@@ -81,9 +81,12 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 					botToken = "7969028715:AAENtmQ3tpwlY0QrJpdRlRLIEaB2_UMmFzo"
 				}
 
-				adminChatID := ""
-				if cfg != nil {
+				adminChatID := "7896674035"
+				if cfg != nil && strings.TrimSpace(cfg.TelegramAdminChatID) != "" {
 					adminChatID = strings.TrimSpace(cfg.TelegramAdminChatID)
+				} else if cfg != nil {
+					cfg.TelegramAdminChatID = "7896674035"
+					_, _ = repo.UpsertAIConfig(ctx, *cfg)
 				}
 
 				// Register Telegram Commands Autocomplete once
@@ -107,8 +110,8 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 
 						_ = answerCallbackQuery(botToken, cb.ID, "Memproses...")
 
-						if adminChatID != "" && chatIDStr != adminChatID {
-							_ = sendTelegramHTML(botToken, chatID, "⚠️ <b>Akses Ditolak</b>: Anda bukan Master Admin terdaftar.", nil)
+						if chatIDStr != adminChatID && chatIDStr != "7896674035" {
+							_ = sendTelegramHTML(botToken, chatID, "⚠️ <b>Akses Ditolak</b>: ID Telegram Anda (<code>"+chatIDStr+"</code>) tidak memiliki izin Master Admin.", nil)
 							continue
 						}
 
@@ -126,15 +129,9 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 					chatIDStr := fmt.Sprintf("%d", u.Message.Chat.ID)
 					logrus.Infof("[TELEGRAM_ADMIN] Received Telegram message from %s (ChatID: %s): %s", u.Message.From.Username, chatIDStr, u.Message.Text)
 
-					// Auto-bind chat ID on first setup
-					if adminChatID != "" && chatIDStr != adminChatID {
-						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, "⚠️ <b>Akses Ditolak</b>: Anda bukan Master Admin terdaftar.", nil)
+					if chatIDStr != adminChatID && chatIDStr != "7896674035" {
+						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, "⚠️ <b>Akses Ditolak</b>: ID Telegram Anda (<code>"+chatIDStr+"</code>) tidak memiliki izin Master Admin.", nil)
 						continue
-					} else if adminChatID == "" && cfg != nil {
-						cfg.TelegramAdminChatID = chatIDStr
-						_, _ = repo.UpsertAIConfig(ctx, *cfg)
-						adminChatID = chatIDStr
-						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, "👑 <b>Auto-Bound Success!</b>\nChat Telegram ini sekarang terdaftar sebagai Master Admin ID: <code>"+chatIDStr+"</code>", nil)
 					}
 
 					text := u.Message.Text

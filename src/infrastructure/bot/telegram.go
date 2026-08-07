@@ -435,21 +435,44 @@ func getKeysSubMenuKeyboard(keysCount int) InlineKeyboardMarkup {
 	return InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
-func getRulesSubMenuKeyboard() InlineKeyboardMarkup {
-	return InlineKeyboardMarkup{
-		InlineKeyboard: [][]InlineKeyboardButton{
-			{
-				{Text: "🔄 Refresh Rules", CallbackData: "/listrules"},
-				{Text: "➕ Buat Rule Baru", CallbackData: "/help_addrule"},
-			},
-			{
-				{Text: "🗑️ Hapus Rule", CallbackData: "/help_delrule"},
-			},
-			{
-				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
-			},
-		},
+func getRulesSubMenuKeyboard(rules []domainBot.AutoReplyRule) InlineKeyboardMarkup {
+	var rows [][]InlineKeyboardButton
+
+	if len(rules) > 0 {
+		var ruleRow []InlineKeyboardButton
+		for i, r := range rules {
+			statusIcon := "🟢"
+			if !r.Enabled {
+				statusIcon = "🔴"
+			}
+			btn := InlineKeyboardButton{
+				Text:         fmt.Sprintf("%s Rule #%d", statusIcon, i+1),
+				CallbackData: fmt.Sprintf("/viewrule %d", i+1),
+			}
+			delBtn := InlineKeyboardButton{
+				Text:         fmt.Sprintf("🗑️ Hapus %d", i+1),
+				CallbackData: fmt.Sprintf("/delrule %d", i+1),
+			}
+			ruleRow = append(ruleRow, btn, delBtn)
+			if len(ruleRow) == 2 {
+				rows = append(rows, ruleRow)
+				ruleRow = nil
+			}
+		}
+		if len(ruleRow) > 0 {
+			rows = append(rows, ruleRow)
+		}
 	}
+
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔄 Refresh Rules", CallbackData: "/listrules"},
+		{Text: "➕ Buat Rule Baru", CallbackData: "/help_addrule"},
+	})
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+	})
+
+	return InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 func getSchedulesSubMenuKeyboard() InlineKeyboardMarkup {
@@ -503,14 +526,17 @@ func getPromptsSubMenuKeyboard() InlineKeyboardMarkup {
 	}
 }
 
-func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotRepository, cfg *domainBot.AIConfig, text string) (string, InlineKeyboardMarkup) {
+func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotRepository, _ *domainBot.AIConfig, text string) (string, InlineKeyboardMarkup) {
 	cmd := strings.TrimSpace(text)
 	lower := strings.ToLower(cmd)
 
-	if cfg == nil {
+	// ALWAYS fetch live fresh AIConfig directly from DB
+	liveCfg, errCfg := repo.GetAIConfig(ctx, "")
+	if errCfg != nil || liveCfg == nil {
 		defaultCfg := defaultAIConfig("")
-		cfg = &defaultCfg
+		liveCfg = &defaultCfg
 	}
+	cfg := liveCfg
 
 	if lower == "/start" || lower == "/help" || lower == "/helpadmin" || lower == "/menu" {
 		return "🤖 <b>gowasi</b>", getMainMenuKeyboard()
@@ -607,6 +633,10 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 				cfg.APIKey = newKey
 			}
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
+			freshCfg, _ := repo.GetAIConfig(ctx, "")
+			if freshCfg != nil {
+				cfg = freshCfg
+			}
 			keys := parseGroqKeys(cfg.APIKey)
 			return fmt.Sprintf("✅ <b>GROQ API KEY BERHASIL DITAMBAHKAN!</b>\n\nKey: <code>%s</code>\nTotal Keys: <b>%d Keys</b>", newKey, len(keys)), getKeysSubMenuKeyboard(len(keys))
 		}
@@ -632,6 +662,10 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 		cfg.APIKey = strings.Join(newKeys, "\n")
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
+		freshCfg, _ := repo.GetAIConfig(ctx, "")
+		if freshCfg != nil {
+			cfg = freshCfg
+		}
 		return fmt.Sprintf("🗑️ <b>KEY BERHASIL DIHAPUS.</b> Sisa Key Aktif: <b>%d Keys</b>", len(newKeys)), getKeysSubMenuKeyboard(len(newKeys))
 	}
 
@@ -639,23 +673,47 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 	if lower == "/listrules" {
 		rules, err := repo.ListRules(ctx, "")
 		if err != nil || len(rules) == 0 {
-			return "📜 <b>MANAJEMEN AUTO-REPLY RULES</b>\n\n⚠️ <b>Belum ada Aturan Balas Otomatis.</b>\nKlik tombol <b>➕ Buat Rule Baru</b> di bawah ini.", getRulesSubMenuKeyboard()
+			return "📜 <b>MANAJEMEN AUTO-REPLY RULES</b>\n\n⚠️ <b>Belum ada Aturan Balas Otomatis.</b>\nKlik tombol <b>➕ Buat Rule Baru</b> di bawah ini.", getRulesSubMenuKeyboard(nil)
 		}
 		out := fmt.Sprintf("📜 <b>DAFTAR ATURAN BALAS OTOMATIS (%d RULES):</b>\n\n", len(rules))
 		for i, r := range rules {
-			out += fmt.Sprintf("<b>%d. %s</b> (ID: <code>%s</code>)\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>\n\n",
-				i+1, r.Name, r.ID[:8], r.TriggerValue, r.TriggerType, r.ResponseText)
+			out += fmt.Sprintf("<b>%d. %s</b> (ID: <code>%d</code>)\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>\n\n",
+				i+1, r.Name, i+1, r.TriggerValue, r.TriggerType, r.ResponseText)
 		}
 		out += "💡 <i>Salin cepat: <code>/addrule </code> | <code>/delrule </code></i>"
-		return out, getRulesSubMenuKeyboard()
+		return out, getRulesSubMenuKeyboard(rules)
 	}
 
 	if lower == "/help_addrule" {
-		return "📜 <b>CARA MEMBUAT ATURAN BALAS OTOMATIS:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/addrule </code>\n\nFormat: <code>/addrule Nama|type|keyword|response</code>\nContoh: <code>/addrule CS|contains|harga|Harga produk Rp 50.000</code>", getRulesSubMenuKeyboard()
+		rules, _ := repo.ListRules(ctx, "")
+		return "📜 <b>CARA MEMBUAT ATURAN BALAS OTOMATIS:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/addrule </code>\n\nFormat: <code>/addrule Nama|type|keyword|response</code>\nContoh: <code>/addrule CS|contains|harga|Harga produk Rp 50.000</code>", getRulesSubMenuKeyboard(rules)
 	}
 
 	if lower == "/help_delrule" {
-		return "🗑️ <b>CARA MENGHAPUS ATURAN AUTO-REPLY:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/delrule </code>\n\nContoh: <code>/delrule a1b2c3d4</code>", getRulesSubMenuKeyboard()
+		rules, _ := repo.ListRules(ctx, "")
+		return "🗑️ <b>CARA MENGHAPUS ATURAN AUTO-REPLY:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/delrule </code>\n\nContoh: <code>/delrule 1</code>", getRulesSubMenuKeyboard(rules)
+	}
+
+	if strings.HasPrefix(lower, "/viewrule") {
+		target := strings.TrimSpace(cmd[9:])
+		rules, _ := repo.ListRules(ctx, "")
+		idx, err := strconv.Atoi(target)
+		if err == nil && idx >= 1 && idx <= len(rules) {
+			r := rules[idx-1]
+			statusBadge := "🟢 Status: AKTIF"
+			if !r.Enabled {
+				statusBadge = "🔴 Status: NONAKTIF"
+			}
+			out := fmt.Sprintf("📜 <b>DETAIL ATURAN BALAS OTOMATIS #%d</b>\n\n"+
+				"• Nama: <b>%s</b>\n"+
+				"• ID: <code>%d</code> (UUID: <code>%s</code>)\n"+
+				"• %s\n"+
+				"• Trigger Type: <code>%s</code>\n"+
+				"• Trigger Value: <code>%s</code>\n"+
+				"• Respon Text: <i>%s</i>",
+				idx, r.Name, idx, r.ID[:8], statusBadge, r.TriggerType, r.TriggerValue, r.ResponseText)
+			return out, getRulesSubMenuKeyboard(rules)
+		}
 	}
 
 	if strings.HasPrefix(lower, "/addrule ") {
@@ -679,27 +737,43 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			}
 			newRule, err := repo.CreateRule(ctx, rule)
 			if err == nil {
-				return fmt.Sprintf("✅ <b>ATURAN BALAS OTOMATIS BERHASIL DIBUAT!</b>\n\n• Nama: <b>%s</b>\n• ID: <code>%s</code>\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>",
-					newRule.Name, newRule.ID[:8], newRule.TriggerValue, newRule.TriggerType, newRule.ResponseText), getRulesSubMenuKeyboard()
+				freshRules, _ := repo.ListRules(ctx, "")
+				return fmt.Sprintf("✅ <b>ATURAN BALAS OTOMATIS BERHASIL DIBUAT!</b>\n\n• Nama: <b>%s</b>\n• ID: <code>%d</code>\n• Trigger: <code>%s</code> (%s)\n• Respon: <i>%s</i>",
+					newRule.Name, len(freshRules), newRule.TriggerValue, newRule.TriggerType, newRule.ResponseText), getRulesSubMenuKeyboard(freshRules)
 			}
 		}
-		return "⚠️ <b>Format Tambah Rule Salah!</b>\nFormat: <code>/addrule Nama|type|keyword|response</code>", getRulesSubMenuKeyboard()
+		rules, _ := repo.ListRules(ctx, "")
+		return "⚠️ <b>Format Tambah Rule Salah!</b>\n\nFormat: <code>/addrule </code> Nama|type|keyword|response\nContoh: <code>/addrule CS|contains|harga|Harga produk Rp 50.000</code>", getRulesSubMenuKeyboard(rules)
 	}
 
-	if strings.HasPrefix(lower, "/delrule ") {
-		targetID := strings.TrimSpace(cmd[9:])
+	if strings.HasPrefix(lower, "/delrule") {
+		target := strings.TrimSpace(cmd[8:])
 		rules, _ := repo.ListRules(ctx, "")
-		foundID := targetID
-		for _, r := range rules {
-			if strings.HasPrefix(r.ID, targetID) {
-				foundID = r.ID
-				break
+		if len(rules) == 0 {
+			return "⚠️ <b>Belum ada rule auto-reply tersimpan.</b>", getRulesSubMenuKeyboard(nil)
+		}
+
+		var targetID string
+		idx, err := strconv.Atoi(target)
+		if err == nil && idx >= 1 && idx <= len(rules) {
+			targetID = rules[idx-1].ID
+		} else {
+			for _, r := range rules {
+				if strings.HasPrefix(r.ID, target) {
+					targetID = r.ID
+					break
+				}
 			}
 		}
-		if err := repo.DeleteRule(ctx, foundID); err == nil {
-			return fmt.Sprintf("🗑️ <b>RULE ID %s BERHASIL DIHAPUS!</b>", foundID[:8]), getRulesSubMenuKeyboard()
+
+		if targetID != "" {
+			if err := repo.DeleteRule(ctx, targetID); err == nil {
+				freshRules, _ := repo.ListRules(ctx, "")
+				return fmt.Sprintf("🗑️ <b>RULE #%s BERHASIL DIHAPUS!</b>", target), getRulesSubMenuKeyboard(freshRules)
+			}
 		}
-		return "⚠️ Gagal menghapus rule. ID tidak ditemukan.", getRulesSubMenuKeyboard()
+		freshRules, _ := repo.ListRules(ctx, "")
+		return "⚠️ Gagal menghapus rule. ID tidak ditemukan.", getRulesSubMenuKeyboard(freshRules)
 	}
 
 	// ── 3. PESAN TERJADWAL SUB-MENU & CRUD ──
@@ -757,7 +831,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 					res.ID[:8], res.Phone, res.SendAt.Format("02 Jan 2006 15:04 WIB"), res.Message), getSchedulesSubMenuKeyboard()
 			}
 		}
-		return "⚠️ <b>Format Tambah Jadwal Salah!</b>\nFormat: <code>/addschedule [nomor]|[10m/1h/ISO]|[pesan]</code>", getSchedulesSubMenuKeyboard()
+		return "⚠️ <b>Format Tambah Jadwal Salah!</b>\nFormat: <code>/addschedule </code> [nomor]|[10m/1h/ISO]|[pesan]", getSchedulesSubMenuKeyboard()
 	}
 
 	if strings.HasPrefix(lower, "/delschedule ") {

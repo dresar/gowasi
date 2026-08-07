@@ -690,8 +690,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return fmt.Sprintf("⚠️ <b>GROQ API KEY #%d ERROR!</b>\n\n• Key: <code>%s</code>\n• Status: Invalid / Kuota Habis", keyIndex+1, masked), getKeysSubMenuKeyboard(len(keys))
 	}
 
-	if strings.HasPrefix(lower, "/addkey ") {
-		newKey := strings.TrimSpace(cmd[8:])
+	if (strings.HasPrefix(lower, "/addkey ") || strings.HasPrefix(lower, "/addkey\n") || strings.HasPrefix(lower, "/addkey\r")) && len(cmd) > 7 {
+		newKey := strings.TrimSpace(cmd[7:])
 		if newKey != "" {
 			if cfg.APIKey != "" {
 				cfg.APIKey = cfg.APIKey + "\n" + newKey
@@ -782,8 +782,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 	}
 
-	if strings.HasPrefix(lower, "/addrule ") {
-		parts := strings.SplitN(cmd[9:], "|", 4)
+	if (strings.HasPrefix(lower, "/addrule ") || strings.HasPrefix(lower, "/addrule\n") || strings.HasPrefix(lower, "/addrule\r")) && len(cmd) > 8 {
+		parts := strings.SplitN(strings.TrimSpace(cmd[8:]), "|", 4)
 		if len(parts) == 4 {
 			name := strings.TrimSpace(parts[0])
 			trigType := domainBot.TriggerType(strings.TrimSpace(parts[1]))
@@ -888,8 +888,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 	}
 
-	if strings.HasPrefix(lower, "/addschedule ") {
-		parts := strings.SplitN(cmd[13:], "|", 3)
+	if (strings.HasPrefix(lower, "/addschedule ") || strings.HasPrefix(lower, "/addschedule\n") || strings.HasPrefix(lower, "/addschedule\r")) && len(cmd) > 12 {
+		parts := strings.SplitN(strings.TrimSpace(cmd[12:]), "|", 3)
 		if len(parts) == 3 {
 			targetPhone := strings.TrimSpace(parts[0])
 			durStr := strings.TrimSpace(parts[1])
@@ -982,8 +982,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return "🔊 <b>CARA UNMUTE KONTAK WA:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/unmute </code>\n\nContoh: <code>/unmute 6281234567890</code>", getMutedSubMenuKeyboard()
 	}
 
-	if strings.HasPrefix(lower, "/mute ") {
-		parts := strings.Fields(cmd[6:])
+	if (strings.HasPrefix(lower, "/mute ") || strings.HasPrefix(lower, "/mute\n") || strings.HasPrefix(lower, "/mute\r")) && len(cmd) > 5 {
+		parts := strings.Fields(strings.TrimSpace(cmd[5:]))
 		if len(parts) >= 1 {
 			targetPhone := parts[0]
 			dur := "permanent"
@@ -1009,8 +1009,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 	}
 
-	if strings.HasPrefix(lower, "/unmute ") {
-		targetPhone := strings.TrimSpace(cmd[8:])
+	if (strings.HasPrefix(lower, "/unmute ") || strings.HasPrefix(lower, "/unmute\n") || strings.HasPrefix(lower, "/unmute\r")) && len(cmd) > 7 {
+		targetPhone := strings.TrimSpace(cmd[7:])
 		var newBlocked []string
 		for _, b := range cfg.BlockedNumbers {
 			if !strings.HasPrefix(b, targetPhone) {
@@ -1045,8 +1045,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return "🗑️ <b>CARA MENGHAPUS CUSTOM PROMPT:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/delprompt </code>", getPromptsSubMenuKeyboard()
 	}
 
-	if strings.HasPrefix(lower, "/setprompt ") {
-		parts := strings.SplitN(cmd[11:], " ", 2)
+	if (strings.HasPrefix(lower, "/setprompt ") || strings.HasPrefix(lower, "/setprompt\n") || strings.HasPrefix(lower, "/setprompt\r")) && len(cmd) > 10 {
+		parts := strings.SplitN(strings.TrimSpace(cmd[10:]), " ", 2)
 		if len(parts) == 2 {
 			targetPhone := strings.TrimSpace(parts[0])
 			customPrompt := strings.TrimSpace(parts[1])
@@ -1059,8 +1059,8 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 	}
 
-	if strings.HasPrefix(lower, "/delprompt ") {
-		targetPhone := strings.TrimSpace(cmd[11:])
+	if (strings.HasPrefix(lower, "/delprompt ") || strings.HasPrefix(lower, "/delprompt\n") || strings.HasPrefix(lower, "/delprompt\r")) && len(cmd) > 10 {
+		targetPhone := strings.TrimSpace(cmd[10:])
 		if cfg.CustomNumberPrompts != nil {
 			delete(cfg.CustomNumberPrompts, targetPhone)
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
@@ -1076,15 +1076,15 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return "📚 <b>BASIS PENGETAHUAN / DATA TOKO:</b>\n\n" + kbText, getMainMenuKeyboard()
 	}
 
-	if strings.HasPrefix(lower, "/setknowledge ") {
-		newKnowledge := strings.TrimSpace(cmd[14:])
+	if (strings.HasPrefix(lower, "/setknowledge ") || strings.HasPrefix(lower, "/setknowledge\n") || strings.HasPrefix(lower, "/setknowledge\r")) && len(cmd) > 13 {
+		newKnowledge := strings.TrimSpace(cmd[13:])
 		cfg.KnowledgeBase = newKnowledge
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
 		return "📚 <b>BASIS PENGETAHUAN / DATA TOKO BERHASIL DIPERBARUI!</b>", getMainMenuKeyboard()
 	}
 
-	if strings.HasPrefix(lower, "/setmodel ") {
-		modelName := strings.TrimSpace(cmd[10:])
+	if (strings.HasPrefix(lower, "/setmodel ") || strings.HasPrefix(lower, "/setmodel\n") || strings.HasPrefix(lower, "/setmodel\r")) && len(cmd) > 9 {
+		modelName := strings.TrimSpace(cmd[9:])
 		if modelName != "" {
 			cfg.Model = modelName
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)

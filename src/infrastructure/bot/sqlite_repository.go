@@ -392,6 +392,67 @@ func savePromptsToJSONFile(m map[string]string) error {
 	return os.WriteFile(customPromptsFilePath, b, 0644)
 }
 
+const botFiltersFilePath = "storages/bot_filters.json"
+var jsonFiltersMutex sync.Mutex
+
+type NumberFilters struct {
+	AIBlockedNumbers         []string `json:"ai_blocked_numbers"`
+	AIAllowedNumbers         []string `json:"ai_allowed_numbers"`
+	AutoReplyBlockedNumbers []string `json:"autoreply_blocked_numbers"`
+	AutoReplyAllowedNumbers []string `json:"autoreply_allowed_numbers"`
+}
+
+func loadNumberFiltersFromJSONFile() NumberFilters {
+	jsonFiltersMutex.Lock()
+	defer jsonFiltersMutex.Unlock()
+
+	var f NumberFilters
+	f.AIBlockedNumbers = []string{}
+	f.AIAllowedNumbers = []string{}
+	f.AutoReplyBlockedNumbers = []string{}
+	f.AutoReplyAllowedNumbers = []string{}
+
+	data, err := os.ReadFile(botFiltersFilePath)
+	if err != nil {
+		return f
+	}
+	_ = json.Unmarshal(data, &f)
+	return f
+}
+
+func saveNumberFiltersToJSONFile(f NumberFilters) error {
+	jsonFiltersMutex.Lock()
+	defer jsonFiltersMutex.Unlock()
+
+	_ = os.MkdirAll("storages", 0755)
+	b, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(botFiltersFilePath, b, 0644)
+}
+
+func mergeStringSlices(a, b []string) []string {
+	seen := make(map[string]bool)
+	var res []string
+	for _, item := range a {
+		item = strings.TrimSpace(item)
+		if item != "" && !seen[item] {
+			seen[item] = true
+			res = append(res, item)
+		}
+	}
+	for _, item := range b {
+		item = strings.TrimSpace(item)
+		if item != "" && !seen[item] {
+			seen[item] = true
+			res = append(res, item)
+		}
+	}
+	return res
+}
+
+
 // SetCustomPrompt atomically sets a single phone→prompt entry in both
 // storages/custom_prompts.json and SQLite DB.
 func (r *SQLiteRepository) SetCustomPrompt(ctx context.Context, phone, prompt string) error {
@@ -623,12 +684,12 @@ func scanSQLiteAIConfig(s scanner) (domainBot.AIConfig, error) {
 	_ = json.Unmarshal([]byte(customSkillsJSON), &cfg.CustomSkills)
 	_ = json.Unmarshal([]byte(adminNumbersJSON), &cfg.AdminNumbers)
 
-	if cfg.AllowedNumbers == nil {
-		cfg.AllowedNumbers = []string{}
-	}
-	if cfg.BlockedNumbers == nil {
-		cfg.BlockedNumbers = []string{}
-	}
+	// Always merge number filters from JSON file (storages/bot_filters.json)
+	filters := loadNumberFiltersFromJSONFile()
+	cfg.BlockedNumbers = mergeStringSlices(cfg.BlockedNumbers, filters.AIBlockedNumbers)
+	cfg.AllowedNumbers = mergeStringSlices(cfg.AllowedNumbers, filters.AIAllowedNumbers)
+	cfg.AutoReplyBlockedNumbers = filters.AutoReplyBlockedNumbers
+	cfg.AutoReplyAllowedNumbers = filters.AutoReplyAllowedNumbers
 	if cfg.CustomNumberPrompts == nil {
 		cfg.CustomNumberPrompts = make(map[string]string)
 	}

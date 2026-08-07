@@ -119,6 +119,9 @@ func ProcessMessage(
 		if !isGroup && rule.OnlyGroups {
 			continue
 		}
+		if !numberAllowed(phone, from, aiCfg.AutoReplyAllowedNumbers, aiCfg.AutoReplyBlockedNumbers) {
+			continue
+		}
 		if !numberAllowed(phone, from, rule.AllowedNumbers, rule.BlockedNumbers) {
 			continue
 		}

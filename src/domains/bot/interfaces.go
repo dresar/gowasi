@@ -71,8 +71,10 @@ type AIConfig struct {
 	ReplyToGroups       bool              `json:"reply_to_groups" db:"reply_to_groups"`
 	ReplyToPrivate      bool              `json:"reply_to_private" db:"reply_to_private"`
 	TriggerKeyword      string            `json:"trigger_keyword" db:"trigger_keyword"`
-	AllowedNumbers      []string          `json:"allowed_numbers" db:"allowed_numbers"`
-	BlockedNumbers      []string          `json:"blocked_numbers" db:"blocked_numbers"`
+	AllowedNumbers          []string          `json:"allowed_numbers" db:"allowed_numbers"`
+	BlockedNumbers          []string          `json:"blocked_numbers" db:"blocked_numbers"`
+	AutoReplyAllowedNumbers []string          `json:"autoreply_allowed_numbers" db:"autoreply_allowed_numbers"`
+	AutoReplyBlockedNumbers []string          `json:"autoreply_blocked_numbers" db:"autoreply_blocked_numbers"`
 	CustomNumberPrompts map[string]string `json:"custom_number_prompts" db:"custom_number_prompts"`
 	CustomSkills        []string          `json:"custom_skills" db:"custom_skills"`
 	AdminNumbers        []string          `json:"admin_numbers" db:"admin_numbers"`

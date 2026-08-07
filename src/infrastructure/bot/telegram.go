@@ -256,8 +256,9 @@ func setTelegramMyCommands(botToken string) error {
 		{"command": "status", "description": "Cek status bot & AI Engine"},
 		{"command": "listkeys", "description": "Menu Manajemen Groq API Keys"},
 		{"command": "listrules", "description": "Menu Auto-Reply Rules"},
+		{"command": "listautoreplynumbers", "description": "Filter Kontak Auto-Reply (Block/Allow)"},
+		{"command": "listmuted", "description": "Filter Kontak AI (Mute/Unmute/Allow)"},
 		{"command": "listschedules", "description": "Menu Pesan Terjadwal WA"},
-		{"command": "listmuted", "description": "Menu Muted Kontak WA"},
 		{"command": "listprompts", "description": "Menu Custom Prompts VIP"},
 		{"command": "clearmemory", "description": "Hapus Riwayat Chat AI Kontak (/clearmemory <nomor>|all)"},
 	}
@@ -269,6 +270,36 @@ func setTelegramMyCommands(botToken string) error {
 	}
 	defer resp.Body.Close()
 	return nil
+}
+
+func getMainMenuKeyboard() InlineKeyboardMarkup {
+	return InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{
+				{Text: "📊 Status Bot", CallbackData: "/status"},
+				{Text: "🔑 Groq API Keys", CallbackData: "/listkeys"},
+			},
+			{
+				{Text: "🟢 Enable AI", CallbackData: "/enableai"},
+				{Text: "🔴 Disable AI", CallbackData: "/disableai"},
+			},
+			{
+				{Text: "📜 Auto-Reply Rules", CallbackData: "/listrules"},
+				{Text: "⚙️ Filter Auto-Reply", CallbackData: "/listautoreplynumbers"},
+			},
+			{
+				{Text: "⏰ Pesan Terjadwal", CallbackData: "/listschedules"},
+				{Text: "🚫 Filter Kontak AI", CallbackData: "/listmuted"},
+			},
+			{
+				{Text: "💖 Custom Prompts", CallbackData: "/listprompts"},
+				{Text: "📖 Knowledge Base", CallbackData: "/viewknowledge"},
+			},
+			{
+				{Text: "🔄 Refresh Menu", CallbackData: "/start"},
+			},
+		},
+	}
 }
 
 func getTelegramUpdates(ctx context.Context, botToken string, offset int) ([]tgUpdate, int, error) {
@@ -402,33 +433,6 @@ func testGroqSingleKey(ctx context.Context, apiKey string) error {
 }
 
 // ── SUB-MENU KEYBOARD BUILDERS ──
-
-func getMainMenuKeyboard() InlineKeyboardMarkup {
-	return InlineKeyboardMarkup{
-		InlineKeyboard: [][]InlineKeyboardButton{
-			{
-				{Text: "📊 Status Bot", CallbackData: "/status"},
-				{Text: "🔑 Groq API Keys", CallbackData: "/listkeys"},
-			},
-			{
-				{Text: "🟢 Enable AI", CallbackData: "/enableai"},
-				{Text: "🔴 Disable AI", CallbackData: "/disableai"},
-			},
-			{
-				{Text: "📜 Auto-Reply Rules", CallbackData: "/listrules"},
-				{Text: "⏰ Pesan Terjadwal", CallbackData: "/listschedules"},
-			},
-			{
-				{Text: "🚫 Muted Kontak", CallbackData: "/listmuted"},
-				{Text: "💖 Custom Prompts", CallbackData: "/listprompts"},
-			},
-			{
-				{Text: "📖 Knowledge Base", CallbackData: "/viewknowledge"},
-				{Text: "🔄 Refresh Menu", CallbackData: "/start"},
-			},
-		},
-	}
-}
 
 func getKeysSubMenuKeyboard(keysCount int) InlineKeyboardMarkup {
 	var rows [][]InlineKeyboardButton
@@ -592,10 +596,29 @@ func getMutedSubMenuKeyboard() InlineKeyboardMarkup {
 		InlineKeyboard: [][]InlineKeyboardButton{
 			{
 				{Text: "🔄 Refresh List Muted", CallbackData: "/listmuted"},
-				{Text: "🔇 Mute Kontak", CallbackData: "/help_mute"},
+				{Text: "🔇 Mute AI Kontak", CallbackData: "/help_mute"},
 			},
 			{
-				{Text: "🔊 Unmute Kontak", CallbackData: "/help_unmute"},
+				{Text: "🔊 Unmute AI Kontak", CallbackData: "/help_unmute"},
+				{Text: "🟢 Allow AI Special", CallbackData: "/help_allowai"},
+			},
+			{
+				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
+			},
+		},
+	}
+}
+
+func getAutoReplyFilterSubMenuKeyboard() InlineKeyboardMarkup {
+	return InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{
+				{Text: "🔄 Refresh Filter", CallbackData: "/listautoreplynumbers"},
+				{Text: "🚫 Block Auto-Reply", CallbackData: "/help_blockautoreply"},
+			},
+			{
+				{Text: "✅ Unblock Auto-Reply", CallbackData: "/help_unblockautoreply"},
+				{Text: "🟢 Allow Special", CallbackData: "/help_allowautoreply"},
 			},
 			{
 				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
@@ -1075,34 +1098,52 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return "⚠️ Gagal menghapus jadwal. ID/Indeks tidak ditemukan.", getSchedulesSubMenuKeyboard(freshScheds)
 	}
 
-	// ── 4. MUTE KONTAK SUB-MENU & CRUD ──
-	if lower == "/listmuted" {
-		if len(cfg.BlockedNumbers) == 0 {
-			return "🚫 <b>MANAJEMEN MUTE KONTAK WA</b>\n\n🟢 <b>Tidak ada kontak yang di-mute.</b> Semua kontak WA dapat mengakses AI.", getMutedSubMenuKeyboard()
-		}
-		out := fmt.Sprintf("🚫 <b>DAFTAR KONTAK WA TER-MUTE (%d KONTAK):</b>\n\n", len(cfg.BlockedNumbers))
-		for i, b := range cfg.BlockedNumbers {
-			parts := strings.SplitN(b, "|", 2)
-			phone := parts[0]
-			durInfo := "Selamanya (Permanen)"
-			if len(parts) == 2 {
-				durInfo = "s/d " + parts[1]
+	// ── 4. FILTER NOMOR AI (MUTE/ALLOW/BLOCK) ──
+	if lower == "/listmuted" || lower == "/listainumbers" {
+		filters := loadNumberFiltersFromJSONFile()
+		out := "🤖 <b>STATUS KONTROL AI PER-KONTAK</b>\n\n"
+		if len(filters.AIBlockedNumbers) == 0 && len(cfg.BlockedNumbers) == 0 {
+			out += "🟢 <b>AI Aktif untuk Semua Kontak</b> (Tidak ada nomor di-mute/diblokir).\n\n"
+		} else {
+			allBlocked := mergeStringSlices(cfg.BlockedNumbers, filters.AIBlockedNumbers)
+			out += fmt.Sprintf("🔴 <b>NOMOR AI DIMATIKAN / DI-MUTE (%d Kontak):</b>\n", len(allBlocked))
+			for i, b := range allBlocked {
+				parts := strings.SplitN(b, "|", 2)
+				phone := parts[0]
+				durInfo := "Permanen"
+				if len(parts) == 2 {
+					durInfo = "s/d " + parts[1]
+				}
+				out += fmt.Sprintf("%d. <code>%s</code> <i>(%s)</i>\n", i+1, phone, durInfo)
 			}
-			out += fmt.Sprintf("%d. <code>%s</code> — %s\n", i+1, phone, durInfo)
+			out += "\n"
 		}
-		out += "\n💡 <i>Salin cepat: <code>/mute </code> | <code>/unmute </code></i>"
+
+		if len(filters.AIAllowedNumbers) > 0 {
+			out += fmt.Sprintf("🟢 <b>NOMOR KHUSUS DIIZINKAN AI (%d Kontak):</b>\n", len(filters.AIAllowedNumbers))
+			for i, a := range filters.AIAllowedNumbers {
+				out += fmt.Sprintf("%d. <code>%s</code>\n", i+1, a)
+			}
+			out += "\n"
+		}
+
+		out += "💡 <i>Salin cepat: <code>/mute </code> | <code>/unmute </code> | <code>/allowai </code></i>"
 		return out, getMutedSubMenuKeyboard()
 	}
 
 	if lower == "/help_mute" {
-		return "🔇 <b>CARA MENG-MUTE KONTAK WA:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/mute </code>\n\nFormat: <code>/mute [nomor] [1h|24h|7d|permanent]</code>\nContoh: <code>/mute 6281234567890 24h</code>", getMutedSubMenuKeyboard()
+		return "🔇 <b>CARA MEMATIKAN AI UNTUK NOMOR TERTENTU:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/mute </code>\n\nFormat: <code>/mute [nomor] [1h|24h|7d|permanent]</code>\nContoh: <code>/mute 6281234567890 24h</code>", getMutedSubMenuKeyboard()
 	}
 
 	if lower == "/help_unmute" {
-		return "🔊 <b>CARA UNMUTE KONTAK WA:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/unmute </code>\n\nContoh: <code>/unmute 6281234567890</code>", getMutedSubMenuKeyboard()
+		return "🔊 <b>CARA MENGHIDUPKAN KEMBALI AI UNTUK NOMOR:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/unmute </code>\n\nContoh: <code>/unmute 6281234567890</code>", getMutedSubMenuKeyboard()
 	}
 
-	if (strings.HasPrefix(lower, "/mute ") || strings.HasPrefix(lower, "/mute\n") || strings.HasPrefix(lower, "/mute\r")) && len(cmd) > 5 {
+	if lower == "/help_allowai" {
+		return "🟢 <b>CARA MENGIZINKAN NOMOR KHUSUS AI (WHITELIST):</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/allowai </code>\n\nContoh: <code>/allowai 6281234567890</code>", getMutedSubMenuKeyboard()
+	}
+
+	if (strings.HasPrefix(lower, "/mute ") || strings.HasPrefix(lower, "/mute\n") || strings.HasPrefix(lower, "/mute\r") || strings.HasPrefix(lower, "/muteai ")) && len(cmd) > 5 {
 		parts := strings.Fields(strings.TrimSpace(cmd[5:]))
 		if len(parts) >= 1 {
 			targetPhone := parts[0]
@@ -1123,23 +1164,116 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 			if expireIso != "" {
 				entry = targetPhone + "|" + expireIso
 			}
-			cfg.BlockedNumbers = append(cfg.BlockedNumbers, entry)
+
+			// Update persistent bot_filters.json
+			filters := loadNumberFiltersFromJSONFile()
+			filters.AIBlockedNumbers = mergeStringSlices(filters.AIBlockedNumbers, []string{entry})
+			_ = saveNumberFiltersToJSONFile(filters)
+
+			cfg.BlockedNumbers = mergeStringSlices(cfg.BlockedNumbers, []string{entry})
 			_, _ = repo.UpsertAIConfig(ctx, *cfg)
-			return fmt.Sprintf("🚫 <b>AI BERHASIL DINONAKTIFKAN UNTUK %s</b>\nDurasi: <code>%s</code>", targetPhone, dur), getMutedSubMenuKeyboard()
+			return fmt.Sprintf("🔴 <b>AI BERHASIL DIMATIKAN UNTUK KONTAK %s</b>\nDurasi: <code>%s</code>", targetPhone, dur), getMutedSubMenuKeyboard()
 		}
 	}
 
-	if (strings.HasPrefix(lower, "/unmute ") || strings.HasPrefix(lower, "/unmute\n") || strings.HasPrefix(lower, "/unmute\r")) && len(cmd) > 7 {
+	if (strings.HasPrefix(lower, "/unmute ") || strings.HasPrefix(lower, "/unmute\n") || strings.HasPrefix(lower, "/unmute\r") || strings.HasPrefix(lower, "/unmuteai ")) && len(cmd) > 7 {
 		targetPhone := strings.TrimSpace(cmd[7:])
+		filters := loadNumberFiltersFromJSONFile()
 		var newBlocked []string
-		for _, b := range cfg.BlockedNumbers {
+		for _, b := range filters.AIBlockedNumbers {
 			if !strings.HasPrefix(b, targetPhone) {
 				newBlocked = append(newBlocked, b)
 			}
 		}
-		cfg.BlockedNumbers = newBlocked
+		filters.AIBlockedNumbers = newBlocked
+		_ = saveNumberFiltersToJSONFile(filters)
+
+		var newCfgBlocked []string
+		for _, b := range cfg.BlockedNumbers {
+			if !strings.HasPrefix(b, targetPhone) {
+				newCfgBlocked = append(newCfgBlocked, b)
+			}
+		}
+		cfg.BlockedNumbers = newCfgBlocked
 		_, _ = repo.UpsertAIConfig(ctx, *cfg)
-		return fmt.Sprintf("✅ <b>AI DIAKTIFKAN KEMBALI UNTUK KONTAK:</b> <code>%s</code>", targetPhone), getMutedSubMenuKeyboard()
+		return fmt.Sprintf("🟢 <b>AI DIAKTIFKAN KEMBALI UNTUK KONTAK:</b> <code>%s</code>", targetPhone), getMutedSubMenuKeyboard()
+	}
+
+	if (strings.HasPrefix(lower, "/allowai ") || strings.HasPrefix(lower, "/allowai\n") || strings.HasPrefix(lower, "/allowai\r")) && len(cmd) > 8 {
+		targetPhone := strings.TrimSpace(cmd[8:])
+		filters := loadNumberFiltersFromJSONFile()
+		filters.AIAllowedNumbers = mergeStringSlices(filters.AIAllowedNumbers, []string{targetPhone})
+		_ = saveNumberFiltersToJSONFile(filters)
+		return fmt.Sprintf("🟢 <b>NOMOR %s BERHASIL DITAMBAHKAN KE WHITELIST AI!</b>", targetPhone), getMutedSubMenuKeyboard()
+	}
+
+	// ── 4B. FILTER NOMOR AUTO-REPLY (BLOCK/ALLOW) ──
+	if lower == "/listautoreplynumbers" {
+		filters := loadNumberFiltersFromJSONFile()
+		out := "⚙️ <b>STATUS KONTROL AUTO-REPLY PER-KONTAK</b>\n\n"
+
+		if len(filters.AutoReplyBlockedNumbers) == 0 {
+			out += "🟢 <b>Auto-Reply Aktif untuk Semua Kontak</b> (Tidak ada nomor diblokir).\n\n"
+		} else {
+			out += fmt.Sprintf("🔴 <b>NOMOR AUTO-REPLY DIMATIKAN / DIBLOKIR (%d Kontak):</b>\n", len(filters.AutoReplyBlockedNumbers))
+			for i, b := range filters.AutoReplyBlockedNumbers {
+				out += fmt.Sprintf("%d. <code>%s</code>\n", i+1, b)
+			}
+			out += "\n"
+		}
+
+		if len(filters.AutoReplyAllowedNumbers) > 0 {
+			out += fmt.Sprintf("🟢 <b>NOMOR KHUSUS DIIZINKAN AUTO-REPLY (%d Kontak):</b>\n", len(filters.AutoReplyAllowedNumbers))
+			for i, a := range filters.AutoReplyAllowedNumbers {
+				out += fmt.Sprintf("%d. <code>%s</code>\n", i+1, a)
+			}
+			out += "\n"
+		}
+
+		out += "💡 <i>Salin cepat: <code>/blockautoreply </code> | <code>/unblockautoreply </code> | <code>/allowautoreply </code></i>"
+		return out, getAutoReplyFilterSubMenuKeyboard()
+	}
+
+	if lower == "/help_blockautoreply" {
+		return "🚫 <b>CARA MEMATIKAN AUTO-REPLY UNTUK NOMOR TERTENTU:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/blockautoreply </code>\n\nContoh: <code>/blockautoreply 6281234567890</code>", getAutoReplyFilterSubMenuKeyboard()
+	}
+
+	if lower == "/help_unblockautoreply" {
+		return "✅ <b>CARA MENGHIDUPKAN KEMBALI AUTO-REPLY UNTUK NOMOR:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/unblockautoreply </code>\n\nContoh: <code>/unblockautoreply 6281234567890</code>", getAutoReplyFilterSubMenuKeyboard()
+	}
+
+	if lower == "/help_allowautoreply" {
+		return "🟢 <b>CARA MENGIZINKAN NOMOR KHUSUS AUTO-REPLY:</b>\n\nSalin &amp; isi perintah di bawah ini:\n<code>/allowautoreply </code>\n\nContoh: <code>/allowautoreply 6281234567890</code>", getAutoReplyFilterSubMenuKeyboard()
+	}
+
+	if (strings.HasPrefix(lower, "/blockautoreply ") || strings.HasPrefix(lower, "/blockautoreply\n") || strings.HasPrefix(lower, "/blockautoreply\r")) && len(cmd) > 16 {
+		targetPhone := strings.TrimSpace(cmd[16:])
+		filters := loadNumberFiltersFromJSONFile()
+		filters.AutoReplyBlockedNumbers = mergeStringSlices(filters.AutoReplyBlockedNumbers, []string{targetPhone})
+		_ = saveNumberFiltersToJSONFile(filters)
+		return fmt.Sprintf("🔴 <b>AUTO-REPLY BERHASIL DIMATIKAN UNTUK KONTAK %s!</b>", targetPhone), getAutoReplyFilterSubMenuKeyboard()
+	}
+
+	if (strings.HasPrefix(lower, "/unblockautoreply ") || strings.HasPrefix(lower, "/unblockautoreply\n") || strings.HasPrefix(lower, "/unblockautoreply\r")) && len(cmd) > 18 {
+		targetPhone := strings.TrimSpace(cmd[18:])
+		filters := loadNumberFiltersFromJSONFile()
+		var newBlocked []string
+		for _, b := range filters.AutoReplyBlockedNumbers {
+			if !strings.HasPrefix(b, targetPhone) {
+				newBlocked = append(newBlocked, b)
+			}
+		}
+		filters.AutoReplyBlockedNumbers = newBlocked
+		_ = saveNumberFiltersToJSONFile(filters)
+		return fmt.Sprintf("🟢 <b>AUTO-REPLY DIAKTIFKAN KEMBALI UNTUK KONTAK:</b> <code>%s</code>", targetPhone), getAutoReplyFilterSubMenuKeyboard()
+	}
+
+	if (strings.HasPrefix(lower, "/allowautoreply ") || strings.HasPrefix(lower, "/allowautoreply\n") || strings.HasPrefix(lower, "/allowautoreply\r")) && len(cmd) > 16 {
+		targetPhone := strings.TrimSpace(cmd[16:])
+		filters := loadNumberFiltersFromJSONFile()
+		filters.AutoReplyAllowedNumbers = mergeStringSlices(filters.AutoReplyAllowedNumbers, []string{targetPhone})
+		_ = saveNumberFiltersToJSONFile(filters)
+		return fmt.Sprintf("🟢 <b>NOMOR %s BERHASIL DITAMBAHKAN KE WHITELIST AUTO-REPLY!</b>", targetPhone), getAutoReplyFilterSubMenuKeyboard()
 	}
 
 	// ── 5. CUSTOM PROMPTS VIP SUB-MENU & CRUD ──

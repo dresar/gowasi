@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainBot "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/bot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/google/uuid"
@@ -458,19 +459,32 @@ func scanSQLiteAIConfig(s scanner) (domainBot.AIConfig, error) {
 }
 
 func defaultAIConfig(deviceID string) domainBot.AIConfig {
-	adminNum := os.Getenv("BOT_ADMIN_NUMBERS")
-	var adminNums []string
-	if adminNum != "" {
-		adminNums = strings.Split(adminNum, ",")
-	} else {
-		adminNums = []string{}
+	tgToken := config.TelegramBotToken
+	if tgToken == "" {
+		tgToken = os.Getenv("TELEGRAM_BOT_TOKEN")
+	}
+	if tgToken == "" {
+		tgToken = "7969028715:AAENtmQ3tpwlY0QrJpdRlRLIEaB2_UMmFzo"
+	}
+
+	adminChatID := config.TelegramAdminChatID
+	if adminChatID == "" {
+		adminChatID = os.Getenv("TELEGRAM_ADMIN_CHAT_ID")
+	}
+	if adminChatID == "" {
+		adminChatID = "7896674035"
+	}
+
+	groqKey := config.GroqAPIKey
+	if groqKey == "" {
+		groqKey = os.Getenv("GROQ_API_KEY")
 	}
 
 	return domainBot.AIConfig{
 		DeviceID:            deviceID,
 		Enabled:             true,
 		Provider:            domainBot.AIProviderGroq,
-		APIKey:              os.Getenv("GROQ_API_KEY"),
+		APIKey:              groqKey,
 		Model:               "llama-3.3-70b-versatile",
 		OllamaURL:           "http://localhost:11434",
 		SystemPrompt:        "Kamu adalah asisten WhatsApp resmi yang ramah, profesional, dan solutif. Jawab pertanyaan pengguna secara akurat, singkat, dan mudah dipahami dalam Bahasa Indonesia.",
@@ -483,9 +497,9 @@ func defaultAIConfig(deviceID string) domainBot.AIConfig {
 		BlockedNumbers:      []string{},
 		CustomNumberPrompts: make(map[string]string),
 		CustomSkills:        []string{"non_formal_tone", "deep_context_memory", "auto_schedule"},
-		AdminNumbers:        adminNums,
-		TelegramBotToken:    os.Getenv("TELEGRAM_BOT_TOKEN"),
-		TelegramAdminChatID: os.Getenv("TELEGRAM_ADMIN_CHAT_ID"),
+		AdminNumbers:        []string{"6282392115909"},
+		TelegramBotToken:    tgToken,
+		TelegramAdminChatID: adminChatID,
 	}
 }
 

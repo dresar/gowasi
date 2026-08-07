@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -363,45 +364,88 @@ func (r *SQLiteRepository) UpsertAIConfig(ctx context.Context, cfg domainBot.AIC
 	return cfg, err
 }
 
-// SetCustomPrompt atomically sets a single phone→prompt entry in the
-// custom_number_prompts JSON column without touching other config fields.
-// This prevents race conditions where a concurrent UpsertAIConfig call
-// (with a stale cfg snapshot) would overwrite the whole map with {}.
+const customPromptsFilePath = "storages/custom_prompts.json"
+var jsonPromptsMutex sync.Mutex
+
+func loadPromptsFromJSONFile() map[string]string {
+	jsonPromptsMutex.Lock()
+	defer jsonPromptsMutex.Unlock()
+
+	m := make(map[string]string)
+	data, err := os.ReadFile(customPromptsFilePath)
+	if err != nil {
+		return m
+	}
+	_ = json.Unmarshal(data, &m)
+	return m
+}
+
+func savePromptsToJSONFile(m map[string]string) error {
+	jsonPromptsMutex.Lock()
+	defer jsonPromptsMutex.Unlock()
+
+	_ = os.MkdirAll("storages", 0755)
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(customPromptsFilePath, b, 0644)
+}
+
+// SetCustomPrompt atomically sets a single phone→prompt entry in both
+// storages/custom_prompts.json and SQLite DB.
 func (r *SQLiteRepository) SetCustomPrompt(ctx context.Context, phone, prompt string) error {
-	// Read current map, merge, write back only that column
+	cleanPhone := stripJID(phone)
+
+	// 1. Save to JSON file
+	m := loadPromptsFromJSONFile()
+	m[cleanPhone] = prompt
+	_ = savePromptsToJSONFile(m)
+
+	// 2. Update SQLite DB for consistency
 	row := r.db.QueryRowContext(ctx, `SELECT custom_number_prompts FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1`)
 	var rawJSON string
 	_ = row.Scan(&rawJSON)
 
-	m := make(map[string]string)
-	_ = json.Unmarshal([]byte(rawJSON), &m)
-	m[phone] = prompt
+	dbMap := make(map[string]string)
+	_ = json.Unmarshal([]byte(rawJSON), &dbMap)
+	dbMap[cleanPhone] = prompt
 
-	newJSON, _ := json.Marshal(m)
+	newJSON, _ := json.Marshal(dbMap)
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE bot_ai_config SET custom_number_prompts=?, updated_at=? WHERE id=(SELECT id FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1)`,
 		string(newJSON), time.Now().UTC(),
 	)
-	logrus.Infof("[BOT_REPO] SetCustomPrompt for %s: stored %d prompts", phone, len(m))
+	logrus.Infof("[BOT_REPO] SetCustomPrompt for %s (JSON & DB): stored %d prompts", cleanPhone, len(m))
 	return err
 }
 
-// DeleteCustomPrompt atomically removes a phone entry from custom_number_prompts.
+// DeleteCustomPrompt atomically removes a phone entry from JSON file and DB.
 func (r *SQLiteRepository) DeleteCustomPrompt(ctx context.Context, phone string) error {
+	cleanPhone := stripJID(phone)
+
+	// 1. Delete from JSON file
+	m := loadPromptsFromJSONFile()
+	delete(m, cleanPhone)
+	delete(m, phone)
+	_ = savePromptsToJSONFile(m)
+
+	// 2. Delete from SQLite DB
 	row := r.db.QueryRowContext(ctx, `SELECT custom_number_prompts FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1`)
 	var rawJSON string
 	_ = row.Scan(&rawJSON)
 
-	m := make(map[string]string)
-	_ = json.Unmarshal([]byte(rawJSON), &m)
-	delete(m, phone)
+	dbMap := make(map[string]string)
+	_ = json.Unmarshal([]byte(rawJSON), &dbMap)
+	delete(dbMap, cleanPhone)
+	delete(dbMap, phone)
 
-	newJSON, _ := json.Marshal(m)
+	newJSON, _ := json.Marshal(dbMap)
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE bot_ai_config SET custom_number_prompts=?, updated_at=? WHERE id=(SELECT id FROM bot_ai_config ORDER BY updated_at DESC LIMIT 1)`,
 		string(newJSON), time.Now().UTC(),
 	)
-	logrus.Infof("[BOT_REPO] DeleteCustomPrompt for %s", phone)
+	logrus.Infof("[BOT_REPO] DeleteCustomPrompt for %s", cleanPhone)
 	return err
 }
 
@@ -587,6 +631,13 @@ func scanSQLiteAIConfig(s scanner) (domainBot.AIConfig, error) {
 	}
 	if cfg.CustomNumberPrompts == nil {
 		cfg.CustomNumberPrompts = make(map[string]string)
+	}
+	// Always merge custom prompts from JSON file (file takes precedence for high resilience)
+	filePrompts := loadPromptsFromJSONFile()
+	for k, v := range filePrompts {
+		if strings.TrimSpace(v) != "" {
+			cfg.CustomNumberPrompts[k] = v
+		}
 	}
 	if cfg.CustomSkills == nil {
 		cfg.CustomSkills = []string{}

@@ -1150,10 +1150,16 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		out := fmt.Sprintf("💖 <b>DAFTAR CUSTOM PROMPT KONTAK (%d KONTAK):</b>\n\n", len(cfg.CustomNumberPrompts))
 		i := 1
 		for phone, p := range cfg.CustomNumberPrompts {
-			out += fmt.Sprintf("<b>%d. <code>%s</code></b>\nPrompt: <i>%s</i>\n\n", i, phone, p)
+			pStr := strings.TrimSpace(p)
+			preview := pStr
+			// Truncate preview to prevent Telegram HTML 400 Bad Request (Message too long)
+			if len(preview) > 100 {
+				preview = preview[:100] + "..."
+			}
+			out += fmt.Sprintf("<b>%d. <code>%s</code></b> (<i>%d karakter</i>)\n└ <i>%s</i>\n\n", i, phone, len(pStr), preview)
 			i++
 		}
-		out += "💡 <i>Salin cepat: <code>/setprompt </code> | <code>/delprompt </code></i>"
+		out += "💡 <i>Salin cepat: <code>/setprompt </code> | <code>/delprompt </code> | <code>/clearmemory </code></i>"
 		return out, getPromptsSubMenuKeyboard()
 	}
 

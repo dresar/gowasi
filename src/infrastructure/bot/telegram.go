@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -138,7 +140,9 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository, sen
 						}
 
 						replyText, kb := processTelegramAdminCommand(ctx, repo, cfg, cb.Data)
-						if messageID > 0 {
+						if strings.TrimSpace(strings.ToLower(cb.Data)) == "/start" {
+							_ = sendTelegramStartMessage(botToken, chatID, replyText, &kb)
+						} else if messageID > 0 {
 							err := editTelegramHTML(botToken, chatID, messageID, replyText, &kb)
 							if err != nil {
 								_ = sendTelegramHTML(botToken, chatID, replyText, &kb)
@@ -169,7 +173,12 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository, sen
 
 					text := u.Message.Text
 					replyText, kb := processTelegramAdminCommand(ctx, repo, cfg, text)
-					_ = sendTelegramHTML(botToken, u.Message.Chat.ID, replyText, &kb)
+					lowerTxt := strings.TrimSpace(strings.ToLower(text))
+					if lowerTxt == "/start" || lowerTxt == "/help" || lowerTxt == "/menu" {
+						_ = sendTelegramStartMessage(botToken, u.Message.Chat.ID, replyText, &kb)
+					} else {
+						_ = sendTelegramHTML(botToken, u.Message.Chat.ID, replyText, &kb)
+					}
 				}
 			}
 		}
@@ -377,6 +386,93 @@ func sendTelegramHTML(botToken string, chatID int64, htmlText string, keyboard *
 		}
 	}
 	return nil
+}
+
+func getGalleryImagePath() string {
+	candidates := []string{
+		"gallery/ChatGPT Image 7 Agu 2026, 16.44.21.png",
+		"../gallery/ChatGPT Image 7 Agu 2026, 16.44.21.png",
+		"gallery/logo.png",
+		"../gallery/logo.png",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	matches, _ := filepath.Glob("gallery/*.png")
+	if len(matches) > 0 {
+		return matches[0]
+	}
+	matchesUp, _ := filepath.Glob("../gallery/*.png")
+	if len(matchesUp) > 0 {
+		return matchesUp[0]
+	}
+	return ""
+}
+
+func sendTelegramPhoto(botToken string, chatID int64, photoPath string, caption string, keyboard *InlineKeyboardMarkup) error {
+	file, err := os.Open(photoPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	_ = writer.WriteField("chat_id", fmt.Sprintf("%d", chatID))
+	if caption != "" {
+		_ = writer.WriteField("caption", caption)
+		_ = writer.WriteField("parse_mode", "HTML")
+	}
+
+	if keyboard != nil {
+		kbBytes, _ := json.Marshal(keyboard)
+		_ = writer.WriteField("reply_markup", string(kbBytes))
+	}
+
+	part, err := writer.CreateFormFile("photo", filepath.Base(photoPath))
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(part, file)
+	if err != nil {
+		return err
+	}
+	_ = writer.Close()
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", botToken)
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("sendPhoto HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	logrus.Infof("[TELEGRAM_ADMIN] Sent photo menu to %d using %s", chatID, photoPath)
+	return nil
+}
+
+func sendTelegramStartMessage(botToken string, chatID int64, caption string, keyboard *InlineKeyboardMarkup) error {
+	photoPath := getGalleryImagePath()
+	if photoPath != "" {
+		err := sendTelegramPhoto(botToken, chatID, photoPath, caption, keyboard)
+		if err == nil {
+			return nil
+		}
+		logrus.Warnf("[TELEGRAM_ADMIN] sendTelegramPhoto error: %v. Falling back to sendTelegramHTML", err)
+	}
+	return sendTelegramHTML(botToken, chatID, caption, keyboard)
 }
 
 func editTelegramHTML(botToken string, chatID int64, messageID int, htmlText string, keyboard *InlineKeyboardMarkup) error {

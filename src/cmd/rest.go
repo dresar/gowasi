@@ -243,19 +243,9 @@ func registerUIRoute(apiGroup fiber.Router, ctx context.Context) {
 	}
 
 	apiGroup.Get("/", func(c fiber.Ctx) error {
-		content, etag, ok := uiManager.Content()
-		if !ok {
-			c.Type("html")
-			return c.Send(uiasset.FallbackHTML(config.AppVersion, config.AppUIRepo))
-		}
-		quoted := `"` + etag + `"`
 		c.Set(fiber.HeaderCacheControl, "no-cache")
-		c.Set(fiber.HeaderETag, quoted)
-		if c.Get(fiber.HeaderIfNoneMatch) == quoted {
-			return c.SendStatus(fiber.StatusNotModified)
-		}
 		c.Type("html")
-		return c.Send(content)
+		return c.Send(uiasset.DefaultUI())
 	})
 }
 

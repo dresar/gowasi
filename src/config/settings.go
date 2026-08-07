@@ -22,7 +22,7 @@ var (
 	// project released as a single HTML file; gowa fetches the latest release
 	// asset and serves it at "/".
 	AppUIEnabled        = true
-	AppUIAutoUpdate     = true
+	AppUIAutoUpdate     = false
 	AppUIRepo           = "aldinokemal/gowa-ui"
 	AppUIAssetName      = "gowa-ui.html"
 	AppUIUpdateInterval = 3 * time.Hour

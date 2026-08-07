@@ -365,6 +365,19 @@ func (r *PostgresRepository) DeleteCustomPrompt(ctx context.Context, phone strin
 	return err
 }
 
+func (r *PostgresRepository) GetChatHistory(ctx context.Context, phone string, limit int) ([]domainBot.ChatMessage, error) {
+	return nil, nil
+}
+
+func (r *PostgresRepository) AppendChatHistory(ctx context.Context, phone, role, content string) error {
+	return nil
+}
+
+func (r *PostgresRepository) ClearChatHistory(ctx context.Context, phone string) error {
+	return nil
+}
+
+
 
 
 func (r *PostgresRepository) AddLog(ctx context.Context, log domainBot.ActivityLog) error {

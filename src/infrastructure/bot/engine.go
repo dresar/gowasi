@@ -210,13 +210,19 @@ func ProcessMessage(
 
 	logrus.Infof("[BOT] falling back to AI Assistant for %s (text: %q)", from, text)
 
+	// Fetch long-term memory / chat history for this contact (last 30 turns)
+	history, _ := repo.GetChatHistory(ctx, phone, 30)
+
 	// Send typing presence while AI thinks
 	sendTypingPresence(client, from, types.ChatPresenceComposing)
 
 	go func() {
 		defer sendTypingPresence(client, from, types.ChatPresencePaused)
 
-		reply, err := callAI(ctx, aiCfg, text, phone)
+		// Append user message to long-term memory
+		_ = repo.AppendChatHistory(ctx, phone, "user", text)
+
+		reply, err := callAI(ctx, aiCfg, text, phone, history)
 		if err != nil || reply == "" {
 			logrus.Errorf("[BOT] AI reply error for %s: %v", from, err)
 			_ = repo.AddLog(ctx, domainBot.ActivityLog{
@@ -233,6 +239,10 @@ func ProcessMessage(
 			logrus.Errorf("[BOT] send AI reply failed to %s: %v", from, err)
 			return
 		}
+
+		// Append assistant reply to long-term memory
+		_ = repo.AppendChatHistory(ctx, phone, "assistant", reply)
+
 		logrus.Infof("[BOT] sent AI reply to %s: %q", from, reply)
 		_ = repo.AddLog(ctx, domainBot.ActivityLog{
 			DeviceID: deviceID,
@@ -361,7 +371,7 @@ func parseJID(s string) (types.JID, error) {
 }
 
 
-func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPhone string) (string, error) {
+func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPhone string, history []domainBot.ChatMessage) (string, error) {
 	if cfg == nil {
 		return "", nil
 	}
@@ -376,7 +386,7 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 	days := []string{"Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"}
 	months := []string{"", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"}
 
-	timeContext := fmt.Sprintf("[WAKTU & SKILL SYSTEM REAL-TIME]:\n- Waktu Saat Ini: %s, %d %s %d Pukul %02d:%02d WIB\n- Status Operational: Online & Siap Melayani",
+	timeContext := fmt.Sprintf("[WAKTU & SYSTEM REAL-TIME]: %s, %d %s %d Pukul %02d:%02d WIB",
 		days[now.Weekday()], now.Day(), months[now.Month()], now.Year(), now.Hour(), now.Minute())
 
 	systemPrompt := cfg.SystemPrompt
@@ -384,8 +394,7 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 	// ── Normalize phone for custom prompt lookup ──
 	normalizedPhone := stripJID(senderPhone)
 
-	// ── 1. Custom Prompt lookup (checked FIRST — overrides everything incl. admin) ──
-	// If a custom prompt is explicitly set for this contact, use it as the persona.
+	// ── 1. Custom Prompt lookup (checked FIRST) ──
 	customPromptFound := ""
 	if cfg.CustomNumberPrompts != nil {
 		// Strategy 1: exact match
@@ -424,12 +433,12 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 	}
 
 	if customPromptFound != "" {
-		// Custom persona explicitly set → use it as full system prompt
+		// Custom persona explicitly set → use pure custom prompt without adding robotic skills
 		logrus.Infof("[BOT] Custom prompt applied for %s", normalizedPhone)
-		systemPrompt = fmt.Sprintf("[PERAN & INSTRUKSI KHUSUS UNTUK KONTAK %s]:\n%s\n\n"+
+		systemPrompt = fmt.Sprintf("[INSTRUKSIPERSONA KHUSUS KONTAK %s]:\n%s\n\n"+
 			"PENTING: Kamu WAJIB memerankan karakter di atas secara PENUH dan KONSISTEN. "+
-			"Jangan pernah keluar dari peran ini, jangan mengaku sebagai AI atau bot, "+
-			"jawab selalu sesuai karakter yang diperintahkan.",
+			"Jangan pernah keluar dari peran ini, jangan mengaku sebagai AI/bot/asisten, "+
+			"dan selalu berikan balasan sesuai riwayat chat serta karakter yang diperintahkan.",
 			normalizedPhone, customPromptFound)
 	}
 
@@ -443,23 +452,29 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 		systemPrompt += "\n\n[BASIS PENGETAHUAN / DATA TOKO BISNIS]:\n" + cfg.KnowledgeBase
 	}
 
-	// Agentic Skills System Instructions
-	systemPrompt += "\n\n[PETUNJUK AI SKILLS HERMES AGENT & BAHASA MANUSIA]:\n" +
-		"1. SKILL BAHASA NON-FORMAL & MANUSIAWI: Sebelum membalas, pahami konteks obrolan. Berpikirlah secara logis dan bernalar. Gunakan bahasa sehari-hari yang santai, alami, manusiawi, ramah, dan tidak kaku seperti robot.\n" +
-		"2. SKILL JADWAL & PENGINGAT: Jika pengirim meminta dibuatkan jadwal, janji, atau pengingat (contoh: 'ingatkan saya besok jam 8 pagi'), buatkan jadwal dan konfirmasi secara ramah.\n" +
-		"3. SKILL WAKTU: Gunakan info waktu real-time jika pengirim bertanya jam, hari, atau tanggal.\n" +
-		"4. SKILL KALKULATOR: Hitung harga dan total pesanan secara akurat jika dibutuhkan.\n" +
-		"5. Jawab pesan secara langsung, natural, akrab, dan mudah dipahami."
+	// Only append default generic skills if NO custom prompt is set for this contact
+	if customPromptFound == "" {
+		systemPrompt += "\n\n[PETUNJUK AI SKILLS HERMES AGENT & BAHASA MANUSIA]:\n" +
+			"1. SKILL BAHASA NON-FORMAL & MANUSIAWI: Gunakan bahasa sehari-hari yang santai, alami, manusiawi, ramah, dan tidak kaku seperti robot.\n" +
+			"2. SKILL JADWAL & PENGINGAT: Jika pengirim meminta dibuatkan jadwal, janji, atau pengingat, buatkan jadwal dan konfirmasi secara ramah.\n" +
+			"3. SKILL WAKTU: Gunakan info waktu real-time jika pengirim bertanya jam, hari, atau tanggal.\n" +
+			"4. Jawab pesan secara langsung, natural, akrab, dan mudah dipahami."
+	}
+
+	maxTokens := cfg.MaxTokens
+	if maxTokens < 500 {
+		maxTokens = 800
+	}
 
 	switch cfg.Provider {
 	case domainBot.AIProviderGroq, "gemini":
-		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, cfg.MaxTokens, cfg.Temperature)
+		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, history, maxTokens, cfg.Temperature)
 	case domainBot.AIProviderCustom:
-		return callCustom(ctx, cfg.APIKey, cfg.CustomURL, cfg.Model, systemPrompt, userMessage, cfg.MaxTokens, cfg.Temperature)
+		return callCustom(ctx, cfg.APIKey, cfg.CustomURL, cfg.Model, systemPrompt, userMessage, history, maxTokens, cfg.Temperature)
 	case domainBot.AIProviderOllama:
-		return callOllama(ctx, cfg.OllamaURL, cfg.Model, systemPrompt, userMessage)
+		return callOllama(ctx, cfg.OllamaURL, cfg.Model, systemPrompt, userMessage, history)
 	default:
-		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, cfg.MaxTokens, cfg.Temperature)
+		return callGroq(ctx, cfg.APIKey, cfg.Model, systemPrompt, userMessage, history, maxTokens, cfg.Temperature)
 	}
 }
 
@@ -492,7 +507,7 @@ func parseGroqKeys(apiKeyRaw string) []string {
 	return keys
 }
 
-func callGroq(ctx context.Context, apiKey, model, systemPrompt, userMessage string, maxTokens int, temperature float64) (string, error) {
+func callGroq(ctx context.Context, apiKey, model, systemPrompt, userMessage string, history []domainBot.ChatMessage, maxTokens int, temperature float64) (string, error) {
 	if apiKey == "" {
 		apiKey = os.Getenv("GROQ_API_KEY")
 	}
@@ -506,7 +521,7 @@ func callGroq(ctx context.Context, apiKey, model, systemPrompt, userMessage stri
 
 	var lastErr error
 	for i, k := range keys {
-		res, err := callGroqSingle(ctx, k, model, systemPrompt, userMessage, maxTokens, temperature)
+		res, err := callGroqSingle(ctx, k, model, systemPrompt, userMessage, history, maxTokens, temperature)
 		if err == nil && res != "" {
 			if i > 0 {
 				logrus.Infof("[BOT_GROQ] Key #%d rotated successfully!", i+1)
@@ -519,14 +534,28 @@ func callGroq(ctx context.Context, apiKey, model, systemPrompt, userMessage stri
 	return "", fmt.Errorf("All %d Groq API Key(s) failed. Last error: %w", len(keys), lastErr)
 }
 
-func callGroqSingle(ctx context.Context, apiKey, model, systemPrompt, userMessage string, maxTokens int, temperature float64) (string, error) {
+func callGroqSingle(ctx context.Context, apiKey, model, systemPrompt, userMessage string, history []domainBot.ChatMessage, maxTokens int, temperature float64) (string, error) {
 	endpoint := "https://api.groq.com/openai/v1/chat/completions"
+
+	messages := []map[string]any{
+		{"role": "system", "content": systemPrompt},
+	}
+	for _, h := range history {
+		if strings.TrimSpace(h.Content) != "" {
+			messages = append(messages, map[string]any{
+				"role":    h.Role,
+				"content": h.Content,
+			})
+		}
+	}
+	messages = append(messages, map[string]any{
+		"role":    "user",
+		"content": userMessage,
+	})
+
 	body := map[string]any{
-		"model": model,
-		"messages": []map[string]any{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userMessage},
-		},
+		"model":       model,
+		"messages":    messages,
 		"max_tokens":  maxTokens,
 		"temperature": temperature,
 	}
@@ -567,16 +596,29 @@ func callGroqSingle(ctx context.Context, apiKey, model, systemPrompt, userMessag
 	return result.Choices[0].Message.Content, nil
 }
 
-func callCustom(ctx context.Context, apiKey, endpoint, model, systemPrompt, userMessage string, maxTokens int, temperature float64) (string, error) {
+func callCustom(ctx context.Context, apiKey, endpoint, model, systemPrompt, userMessage string, history []domainBot.ChatMessage, maxTokens int, temperature float64) (string, error) {
 	if endpoint == "" {
 		endpoint = "https://api.openai.com/v1/chat/completions"
 	}
+	messages := []map[string]any{
+		{"role": "system", "content": systemPrompt},
+	}
+	for _, h := range history {
+		if strings.TrimSpace(h.Content) != "" {
+			messages = append(messages, map[string]any{
+				"role":    h.Role,
+				"content": h.Content,
+			})
+		}
+	}
+	messages = append(messages, map[string]any{
+		"role":    "user",
+		"content": userMessage,
+	})
+
 	body := map[string]any{
-		"model": model,
-		"messages": []map[string]any{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userMessage},
-		},
+		"model":       model,
+		"messages":    messages,
 		"max_tokens":  maxTokens,
 		"temperature": temperature,
 	}
@@ -615,20 +657,33 @@ func callCustom(ctx context.Context, apiKey, endpoint, model, systemPrompt, user
 	return result.Choices[0].Message.Content, nil
 }
 
-func callOllama(ctx context.Context, ollamaURL, model, systemPrompt, userMessage string) (string, error) {
+func callOllama(ctx context.Context, ollamaURL, model, systemPrompt, userMessage string, history []domainBot.ChatMessage) (string, error) {
 	if ollamaURL == "" {
 		ollamaURL = "http://localhost:11434"
 	}
 	if model == "" {
 		model = "llama3.2"
 	}
+	messages := []map[string]any{
+		{"role": "system", "content": systemPrompt},
+	}
+	for _, h := range history {
+		if strings.TrimSpace(h.Content) != "" {
+			messages = append(messages, map[string]any{
+				"role":    h.Role,
+				"content": h.Content,
+			})
+		}
+	}
+	messages = append(messages, map[string]any{
+		"role":    "user",
+		"content": userMessage,
+	})
+
 	body := map[string]any{
-		"model": model,
-		"messages": []map[string]any{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userMessage},
-		},
-		"stream": false,
+		"model":    model,
+		"messages": messages,
+		"stream":   false,
 	}
 	b, _ := json.Marshal(body)
 

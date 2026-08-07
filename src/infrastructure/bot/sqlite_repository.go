@@ -101,6 +101,15 @@ func (r *SQLiteRepository) EnsureSchema(ctx context.Context) error {
 			status TEXT NOT NULL DEFAULT 'pending',
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
+		// Long-term memory: per-contact AI conversation history
+		`CREATE TABLE IF NOT EXISTS bot_chat_history (
+			id TEXT PRIMARY KEY,
+			phone TEXT NOT NULL,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_bot_chat_history_phone ON bot_chat_history(phone, created_at DESC);`,
 	}
 
 	for _, stmt := range stmts {
@@ -393,6 +402,73 @@ func (r *SQLiteRepository) DeleteCustomPrompt(ctx context.Context, phone string)
 		string(newJSON), time.Now().UTC(),
 	)
 	logrus.Infof("[BOT_REPO] DeleteCustomPrompt for %s", phone)
+	return err
+}
+
+// GetChatHistory returns recent conversation history for a phone number ordered by created_at ASC
+func (r *SQLiteRepository) GetChatHistory(ctx context.Context, phone string, limit int) ([]domainBot.ChatMessage, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+	cleanPhone := stripJID(phone)
+	q := `SELECT role, content, created_at FROM (
+			SELECT role, content, created_at FROM bot_chat_history
+			WHERE phone = ? OR phone = ?
+			ORDER BY created_at DESC LIMIT ?
+		  ) ORDER BY created_at ASC`
+	rows, err := r.db.QueryContext(ctx, q, phone, cleanPhone, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var history []domainBot.ChatMessage
+	for rows.Next() {
+		var msg domainBot.ChatMessage
+		if err := rows.Scan(&msg.Role, &msg.Content, &msg.Created); err != nil {
+			return nil, err
+		}
+		history = append(history, msg)
+	}
+	return history, rows.Err()
+}
+
+// AppendChatHistory inserts a chat message and automatically prunes old messages if limit exceeds 50
+func (r *SQLiteRepository) AppendChatHistory(ctx context.Context, phone, role, content string) error {
+	cleanPhone := stripJID(phone)
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO bot_chat_history (id, phone, role, content, created_at) VALUES (?,?,?,?,?)`,
+		id, cleanPhone, role, content, now,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Auto-prune messages keeping last 40 per contact
+	go func() {
+		pruneCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		pruneQuery := `DELETE FROM bot_chat_history WHERE phone = ? AND id NOT IN (
+			SELECT id FROM bot_chat_history WHERE phone = ? ORDER BY created_at DESC LIMIT 40
+		)`
+		_, _ = r.db.ExecContext(pruneCtx, pruneQuery, cleanPhone, cleanPhone)
+	}()
+
+	return nil
+}
+
+// ClearChatHistory deletes all chat history for a given phone (or all if phone is "all")
+func (r *SQLiteRepository) ClearChatHistory(ctx context.Context, phone string) error {
+	cleanPhone := stripJID(phone)
+	if cleanPhone == "all" || phone == "all" {
+		_, err := r.db.ExecContext(ctx, `DELETE FROM bot_chat_history`)
+		logrus.Infof("[BOT_REPO] ClearChatHistory: cleared ALL chat history")
+		return err
+	}
+	_, err := r.db.ExecContext(ctx, `DELETE FROM bot_chat_history WHERE phone = ? OR phone = ?`, phone, cleanPhone)
+	logrus.Infof("[BOT_REPO] ClearChatHistory for %s", cleanPhone)
 	return err
 }
 

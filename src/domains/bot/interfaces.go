@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+// ChatMessage represents a single turn in a conversation history
+type ChatMessage struct {
+	Role    string    // "user" | "assistant"
+	Content string
+	Created time.Time
+}
+
+
 type TriggerType string
 
 const (
@@ -108,6 +116,11 @@ type IBotRepository interface {
 	ListScheduledMessages(ctx context.Context, deviceID string) ([]ScheduledMessage, error)
 	DeleteScheduledMessage(ctx context.Context, id string) error
 	MarkScheduledMessageSent(ctx context.Context, id string) error
+
+	// Long-term memory: per-contact conversation history for AI context
+	GetChatHistory(ctx context.Context, phone string, limit int) ([]ChatMessage, error)
+	AppendChatHistory(ctx context.Context, phone, role, content string) error
+	ClearChatHistory(ctx context.Context, phone string) error
 }
 
 type ScheduledMessage struct {

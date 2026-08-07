@@ -259,6 +259,7 @@ func setTelegramMyCommands(botToken string) error {
 		{"command": "listschedules", "description": "Menu Pesan Terjadwal WA"},
 		{"command": "listmuted", "description": "Menu Muted Kontak WA"},
 		{"command": "listprompts", "description": "Menu Custom Prompts VIP"},
+		{"command": "clearmemory", "description": "Hapus Riwayat Chat AI Kontak (/clearmemory <nomor>|all)"},
 	}
 	payload := map[string]any{"commands": cmds}
 	b, _ := json.Marshal(payload)
@@ -612,6 +613,7 @@ func getPromptsSubMenuKeyboard() InlineKeyboardMarkup {
 			},
 			{
 				{Text: "🗑️ Hapus Custom Prompt", CallbackData: "/help_delprompt"},
+				{Text: "🧹 Reset Memory Chat", CallbackData: "/help_clearmemory"},
 			},
 			{
 				{Text: "🔙 Kembali ke Menu Utama", CallbackData: "/start"},
@@ -1183,6 +1185,28 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		return fmt.Sprintf("🗑️ <b>PROMPT KHUSUS UNTUK %s BERHASIL DIHAPUS.</b>", targetPhone), getPromptsSubMenuKeyboard()
 	}
 
+	if lower == "/help_clearmemory" {
+		return "🧹 <b>CARA MENGHAPUS RIWAYAT CHAT (LONG-TERM MEMORY) AI:</b>\n\n"+
+			"Salin &amp; isi perintah di bawah ini:\n"+
+			"<code>/clearmemory </code> [nomor|all]\n\n"+
+			"• Hapus 1 kontak: <code>/clearmemory 6282392115909</code>\n"+
+			"• Hapus SEMUA memori: <code>/clearmemory all</code>", getPromptsSubMenuKeyboard()
+	}
+
+	if (strings.HasPrefix(lower, "/clearmemory ") || strings.HasPrefix(lower, "/clearmemory\n") || strings.HasPrefix(lower, "/clearmemory\r") || strings.HasPrefix(lower, "/clearmemory")) && len(cmd) >= 11 {
+		targetPhone := strings.TrimSpace(cmd[11:])
+		if targetPhone == "" {
+			return "⚠️ <b>Format Perintah Salah!</b>\nContoh: <code>/clearmemory 6282392115909</code> atau <code>/clearmemory all</code>", getPromptsSubMenuKeyboard()
+		}
+		if err := repo.ClearChatHistory(ctx, targetPhone); err != nil {
+			return fmt.Sprintf("⚠️ <b>Gagal menghapus riwayat chat: %v</b>", err), getPromptsSubMenuKeyboard()
+		}
+		if targetPhone == "all" {
+			return "🧹 <b>SELURUH RIWAYAT CHAT MEMORY AI BERHASIL DIHAPUS/RESET!</b>", getPromptsSubMenuKeyboard()
+		}
+		return fmt.Sprintf("🧹 <b>RIWAYAT CHAT MEMORY AI UNTUK %s BERHASIL DIHAPUS/RESET!</b>", targetPhone), getPromptsSubMenuKeyboard()
+	}
+
 	if lower == "/viewknowledge" {
 		kbText := cfg.KnowledgeBase
 		if kbText == "" {
@@ -1208,9 +1232,12 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 	}
 
 	// AI Natural Reply for Super Admin on Telegram
-	res, err := callAI(ctx, cfg, text, "telegram_admin")
+	tgHistory, _ := repo.GetChatHistory(ctx, "telegram_admin", 15)
+	res, err := callAI(ctx, cfg, text, "telegram_admin", tgHistory)
 	if err != nil || res == "" {
 		return "🤖 <b>Telegram Admin AI:</b> Perintah tidak dikenali. Ketik /help untuk melihat menu perintah lengkap.", getMainMenuKeyboard()
 	}
+	_ = repo.AppendChatHistory(ctx, "telegram_admin", "user", text)
+	_ = repo.AppendChatHistory(ctx, "telegram_admin", "assistant", res)
 	return res, getMainMenuKeyboard()
 }

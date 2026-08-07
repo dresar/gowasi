@@ -390,6 +390,8 @@ func sendTelegramHTML(botToken string, chatID int64, htmlText string, keyboard *
 
 func getGalleryImagePath() string {
 	candidates := []string{
+		"gallery/banner_cropped.png",
+		"../gallery/banner_cropped.png",
 		"gallery/ChatGPT Image 7 Agu 2026, 16.44.21.png",
 		"../gallery/ChatGPT Image 7 Agu 2026, 16.44.21.png",
 		"gallery/logo.png",
@@ -754,7 +756,7 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 	cfg := liveCfg
 
 	if lower == "/start" || lower == "/help" || lower == "/helpadmin" || lower == "/menu" {
-		return "🤖 <b>gowasi</b>", getMainMenuKeyboard()
+		return "", getMainMenuKeyboard()
 	}
 
 	if lower == "/status" {

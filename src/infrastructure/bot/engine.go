@@ -513,44 +513,33 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 	systemPrompt := cfg.SystemPrompt
 
 	// ── Normalize phone for custom prompt lookup ──
-	// senderPhone may come as "628xxx" (already stripped) or full JID "628xxx@s.whatsapp.net"
-	normalizedPhone := stripJID(senderPhone) // strip @s.whatsapp.net, @g.us, etc.
+	normalizedPhone := stripJID(senderPhone)
 
-	// MASTER ADMIN PRIVILEGE INJECTION
-	if isAdminNumber(normalizedPhone, cfg.AdminNumbers) {
-		systemPrompt = fmt.Sprintf("[HAK AKSES HIERARKI: MASTER ADMIN OWNER (%s)]:\n"+
-			"Pengirim pesan ini adalah MASTER ADMIN UTAMA / OWNER BOT (%s).\n"+
-			"Pengirim memiliki wewenang penuh atas seluruh konfigurasi bot. Berikan layanan terbaik, hormati instruksi admin, dan bantu atur jadwal/fitur secara fleksibel.\n\n"+
-			"%s", normalizedPhone, normalizedPhone, systemPrompt)
-	} else if cfg.CustomNumberPrompts != nil {
-		// Match custom prompt with multiple phone format strategies:
-		// 1. Exact normalized phone (e.g. 6282392115909)
-		// 2. Full raw senderPhone as stored
-		// 3. Suffix match: last N digits — handles cases where number was stored
-		//    without full country code (e.g. stored "82392115909" or "62392115909"
-		//    should match incoming "6282392115909")
-		customPromptFound := ""
+	// ── 1. Custom Prompt lookup (checked FIRST — overrides everything incl. admin) ──
+	// If a custom prompt is explicitly set for this contact, use it as the persona.
+	customPromptFound := ""
+	if cfg.CustomNumberPrompts != nil {
+		// Strategy 1: exact match
 		for _, tryPhone := range []string{normalizedPhone, senderPhone} {
 			if p, ok := cfg.CustomNumberPrompts[tryPhone]; ok && strings.TrimSpace(p) != "" {
 				customPromptFound = strings.TrimSpace(p)
 				break
 			}
 		}
+		// Strategy 2: substring / suffix match (handles missing country code digits)
 		if customPromptFound == "" {
 			for storedPhone, p := range cfg.CustomNumberPrompts {
 				storedClean := stripJID(storedPhone)
 				if storedClean == "" || strings.TrimSpace(p) == "" {
 					continue
 				}
-				// Exact / substring match
 				if strings.Contains(normalizedPhone, storedClean) || strings.Contains(storedClean, normalizedPhone) {
 					customPromptFound = strings.TrimSpace(p)
 					break
 				}
-				// Suffix match: at least last 9 digits must match
-				// Handles user typing "62392115909" when real number is "6282392115909"
-				minLen := 9
-				if len(storedClean) >= minLen && len(normalizedPhone) >= minLen {
+				// Suffix match: last 9+ digits — handles "62392115909" vs "6282392115909"
+				const minSuffix = 9
+				if len(storedClean) >= minSuffix && len(normalizedPhone) >= minSuffix {
 					sfxLen := len(storedClean)
 					if sfxLen > len(normalizedPhone) {
 						sfxLen = len(normalizedPhone)
@@ -563,13 +552,22 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 				}
 			}
 		}
-		if customPromptFound != "" {
-			logrus.Infof("[BOT] Custom prompt applied for %s", normalizedPhone)
-			systemPrompt = fmt.Sprintf("[PERAN & INSTRUKSI KHUSUS UNTUK KONTAK %s]:\n%s\n\n"+
-				"PENTING: Kamu HARUS mengikuti instruksi, peran, dan gaya bahasa di atas secara PENUH! "+
-				"Jangan pernah keluar dari peran ini selama percakapan berlangsung.",
-				normalizedPhone, customPromptFound)
-		}
+	}
+
+	if customPromptFound != "" {
+		// Custom persona explicitly set → use it as full system prompt
+		logrus.Infof("[BOT] Custom prompt applied for %s", normalizedPhone)
+		systemPrompt = fmt.Sprintf("[PERAN & INSTRUKSI KHUSUS UNTUK KONTAK %s]:\n%s\n\n"+
+			"PENTING: Kamu WAJIB memerankan karakter di atas secara PENUH dan KONSISTEN. "+
+			"Jangan pernah keluar dari peran ini, jangan mengaku sebagai AI atau bot, "+
+			"jawab selalu sesuai karakter yang diperintahkan.",
+			normalizedPhone, customPromptFound)
+	} else if isAdminNumber(normalizedPhone, cfg.AdminNumbers) {
+		// ── 2. Admin privilege (only when no custom prompt) ──
+		systemPrompt = fmt.Sprintf("[HAK AKSES HIERARKI: MASTER ADMIN OWNER (%s)]:\n"+
+			"Pengirim pesan ini adalah MASTER ADMIN UTAMA / OWNER BOT (%s).\n"+
+			"Pengirim memiliki wewenang penuh atas seluruh konfigurasi bot. Berikan layanan terbaik, hormati instruksi admin, dan bantu atur jadwal/fitur secara fleksibel.\n\n"+
+			"%s", normalizedPhone, normalizedPhone, systemPrompt)
 	}
 
 	if systemPrompt == "" {

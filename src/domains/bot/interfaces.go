@@ -118,6 +118,8 @@ type IBotRepository interface {
 	ListScheduledMessages(ctx context.Context, deviceID string) ([]ScheduledMessage, error)
 	DeleteScheduledMessage(ctx context.Context, id string) error
 	MarkScheduledMessageSent(ctx context.Context, id string) error
+	ClaimScheduledMessage(ctx context.Context, id string) (bool, error)
+	UpdateScheduledMessageStatus(ctx context.Context, id, status string) error
 
 	// Long-term memory: per-contact conversation history for AI context
 	GetChatHistory(ctx context.Context, phone string, limit int) ([]ChatMessage, error)

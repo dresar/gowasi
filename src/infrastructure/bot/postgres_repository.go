@@ -458,3 +458,17 @@ func (r *PostgresRepository) MarkScheduledMessageSent(ctx context.Context, id st
 	_, err := r.db.ExecContext(ctx, `UPDATE bot_scheduled_messages SET status = 'sent' WHERE id = $1`, id)
 	return err
 }
+
+func (r *PostgresRepository) ClaimScheduledMessage(ctx context.Context, id string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE bot_scheduled_messages SET status = 'processing' WHERE id = $1 AND status = 'pending'`, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (r *PostgresRepository) UpdateScheduledMessageStatus(ctx context.Context, id, status string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE bot_scheduled_messages SET status = $1 WHERE id = $2`, status, id)
+	return err
+}

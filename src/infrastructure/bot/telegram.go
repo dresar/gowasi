@@ -222,6 +222,12 @@ func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRep
 
 			for _, s := range schedules {
 				if s.Status == "pending" && (s.SendAt.Before(now) || s.SendAt.Equal(now)) {
+					// Atomic claim to prevent duplicate sending across concurrent workers/ticks
+					claimed, err := repo.ClaimScheduledMessage(ctx, s.ID)
+					if err != nil || !claimed {
+						continue // Already claimed by another worker -> skip
+					}
+
 					logrus.Infof("[SCHEDULED_MSG] Executing scheduled message ID: %s to %s via WA", s.ID, s.Phone)
 
 					var sendErr error
@@ -245,6 +251,7 @@ func startScheduledMessageDispatcher(ctx context.Context, repo domainBot.IBotRep
 							_ = sendTelegramHTML(botToken, chatID, notif, nil)
 						}
 					} else {
+						_ = repo.UpdateScheduledMessageStatus(ctx, s.ID, "failed")
 						logrus.Errorf("[SCHEDULED_MSG] Failed to send scheduled message ID %s to %s: %v", s.ID, s.Phone, sendErr)
 						if adminChatID != "" {
 							chatID, _ := strconv.ParseInt(adminChatID, 10, 64)

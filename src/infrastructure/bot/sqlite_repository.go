@@ -805,3 +805,17 @@ func (r *SQLiteRepository) MarkScheduledMessageSent(ctx context.Context, id stri
 	_, err := r.db.ExecContext(ctx, `UPDATE bot_scheduled_messages SET status = 'sent' WHERE id = ?`, id)
 	return err
 }
+
+func (r *SQLiteRepository) ClaimScheduledMessage(ctx context.Context, id string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE bot_scheduled_messages SET status = 'processing' WHERE id = ? AND status = 'pending'`, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (r *SQLiteRepository) UpdateScheduledMessageStatus(ctx context.Context, id, status string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE bot_scheduled_messages SET status = ? WHERE id = ?`, status, id)
+	return err
+}

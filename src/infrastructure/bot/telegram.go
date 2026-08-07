@@ -1166,15 +1166,22 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 	}
 
 	if (strings.HasPrefix(lower, "/setprompt ") || strings.HasPrefix(lower, "/setprompt\n") || strings.HasPrefix(lower, "/setprompt\r")) && len(cmd) > 10 {
-		parts := strings.SplitN(strings.TrimSpace(cmd[10:]), " ", 2)
-		if len(parts) == 2 {
-			targetPhone := strings.TrimSpace(parts[0])
-			customPrompt := strings.TrimSpace(parts[1])
-			// Use atomic update - avoids race condition with full UpsertAIConfig
-			if err := repo.SetCustomPrompt(ctx, targetPhone, customPrompt); err != nil {
-				return fmt.Sprintf("⚠️ <b>Gagal menyimpan prompt untuk %s: %v</b>", targetPhone, err), getPromptsSubMenuKeyboard()
+		trimmed := strings.TrimSpace(cmd[10:])
+		idx := strings.IndexAny(trimmed, " \n\r\t")
+		if idx != -1 {
+			targetPhone := strings.TrimSpace(trimmed[:idx])
+			customPrompt := strings.TrimSpace(trimmed[idx:])
+			if targetPhone != "" && customPrompt != "" {
+				// Use atomic update - avoids race condition with full UpsertAIConfig
+				if err := repo.SetCustomPrompt(ctx, targetPhone, customPrompt); err != nil {
+					return fmt.Sprintf("⚠️ <b>Gagal menyimpan prompt untuk %s: %v</b>", targetPhone, err), getPromptsSubMenuKeyboard()
+				}
+				displayPrompt := customPrompt
+				if len(displayPrompt) > 250 {
+					displayPrompt = displayPrompt[:250] + "..."
+				}
+				return fmt.Sprintf("💖 <b>PROMPT KHUSUS BERHASIL DISIMPAN UNTUK %s!</b>\n\n<b>Panjang Prompt:</b> %d karakter\n<b>Pratinjau:</b> <i>%s</i>", targetPhone, len(customPrompt), displayPrompt), getPromptsSubMenuKeyboard()
 			}
-			return fmt.Sprintf("💖 <b>PROMPT KHUSUS BERHASIL DISIMPAN UNTUK %s!</b>\n\n<b>Prompt:</b> <i>%s</i>", targetPhone, customPrompt), getPromptsSubMenuKeyboard()
 		}
 	}
 
@@ -1231,13 +1238,6 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 		}
 	}
 
-	// AI Natural Reply for Super Admin on Telegram
-	tgHistory, _ := repo.GetChatHistory(ctx, "telegram_admin", 15)
-	res, err := callAI(ctx, cfg, text, "telegram_admin", tgHistory)
-	if err != nil || res == "" {
-		return "🤖 <b>Telegram Admin AI:</b> Perintah tidak dikenali. Ketik /help untuk melihat menu perintah lengkap.", getMainMenuKeyboard()
-	}
-	_ = repo.AppendChatHistory(ctx, "telegram_admin", "user", text)
-	_ = repo.AppendChatHistory(ctx, "telegram_admin", "assistant", res)
-	return res, getMainMenuKeyboard()
+	// Telegram Bot is strictly for Admin Control — no AI natural replies on Telegram
+	return "⚠️ <b>Perintah tidak dikenali.</b> Silakan gunakan menu kontrol di bawah ini atau ketik <code>/start</code>.", getMainMenuKeyboard()
 }

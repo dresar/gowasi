@@ -222,13 +222,13 @@ func (r *PostgresRepository) CreateRule(ctx context.Context, rule domainBot.Auto
 		only_private, only_groups, allowed_numbers, blocked_numbers,
 		response_type, response_text, additional_texts, response_delay_ms,
 		triggered_count, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,0,$17,$18)`
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`
 	_, err := r.db.ExecContext(ctx, q,
-		rule.ID, rule.DeviceID, boolToInt(rule.Enabled), rule.Priority,
+		rule.ID, rule.DeviceID, rule.Name, boolToInt(rule.Enabled), rule.Priority,
 		string(rule.TriggerType), rule.TriggerValue, boolToInt(rule.CaseSensitive),
 		boolToInt(rule.OnlyPrivate), boolToInt(rule.OnlyGroups), string(allowedJSON), string(blockedJSON),
 		rule.ResponseType, rule.ResponseText, string(addlJSON), rule.ResponseDelayMs,
-		rule.CreatedAt, rule.UpdatedAt,
+		rule.TriggeredCount, rule.CreatedAt, rule.UpdatedAt,
 	)
 	return rule, err
 }

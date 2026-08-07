@@ -233,13 +233,13 @@ func (r *SQLiteRepository) CreateRule(ctx context.Context, rule domainBot.AutoRe
 		only_private, only_groups, allowed_numbers, blocked_numbers,
 		response_type, response_text, additional_texts, response_delay_ms,
 		triggered_count, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.ExecContext(ctx, q,
-		rule.ID, rule.DeviceID, boolToInt(rule.Enabled), rule.Priority,
+		rule.ID, rule.DeviceID, rule.Name, boolToInt(rule.Enabled), rule.Priority,
 		string(rule.TriggerType), rule.TriggerValue, boolToInt(rule.CaseSensitive),
 		boolToInt(rule.OnlyPrivate), boolToInt(rule.OnlyGroups), string(allowedJSON), string(blockedJSON),
 		rule.ResponseType, rule.ResponseText, string(addlJSON), rule.ResponseDelayMs,
-		rule.CreatedAt, rule.UpdatedAt,
+		rule.TriggeredCount, rule.CreatedAt, rule.UpdatedAt,
 	)
 	return rule, err
 }

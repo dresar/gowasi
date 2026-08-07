@@ -146,6 +146,18 @@ func initEnvConfig() {
 	if envDBKEYSURI := viper.GetString("db_keys_uri"); envDBKEYSURI != "" {
 		config.DBKeysURI = envDBKEYSURI
 	}
+	if envTgToken := viper.GetString("telegram_bot_token"); envTgToken != "" {
+		config.TelegramBotToken = envTgToken
+	}
+	if envTgChatID := viper.GetString("telegram_admin_chat_id"); envTgChatID != "" {
+		config.TelegramAdminChatID = envTgChatID
+	}
+	if envAdminNums := viper.GetString("bot_admin_numbers"); envAdminNums != "" {
+		config.BotAdminNumbers = strings.Split(envAdminNums, ",")
+	}
+	if envGroqKey := viper.GetString("groq_api_key"); envGroqKey != "" {
+		config.GroqAPIKey = envGroqKey
+	}
 	if viper.IsSet("chat_storage_max_open_conns") {
 		if n := viper.GetInt("chat_storage_max_open_conns"); n > 0 {
 			config.ChatStorageMaxOpenConns = n

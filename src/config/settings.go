@@ -101,7 +101,11 @@ var (
 
 	// BotDBURI is the database URI used by the server-side auto-reply and AI bot engine.
 	// Defaults to local SQLite ("file:storages/bot.db"). Can also accept PostgreSQL (Neon) URI.
-	BotDBURI = "file:storages/bot.db"
+	BotDBURI            = "file:storages/bot.db"
+	TelegramBotToken    = ""
+	TelegramAdminChatID = "7896674035"
+	BotAdminNumbers     []string
+	GroqAPIKey          = ""
 
 	// ChatwootImportPlaceholderMediaMessage controls what is inserted as the
 	// message body for media messages when the importer could not download

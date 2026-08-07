@@ -115,8 +115,12 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 					if u.CallbackQuery != nil {
 						cb := u.CallbackQuery
 						chatID := cb.Message.Chat.ID
+						messageID := 0
+						if cb.Message != nil {
+							messageID = cb.Message.MessageID
+						}
 						chatIDStr := fmt.Sprintf("%d", chatID)
-						logrus.Infof("[TELEGRAM_ADMIN] CallbackQuery click from %s (ChatID: %s): %s", cb.From.Username, chatIDStr, cb.Data)
+						logrus.Infof("[TELEGRAM_ADMIN] CallbackQuery click from %s (ChatID: %s, MsgID: %d): %s", cb.From.Username, chatIDStr, messageID, cb.Data)
 
 						_ = answerCallbackQuery(botToken, cb.ID, "Memproses...")
 
@@ -126,7 +130,14 @@ func StartTelegramWorker(ctx context.Context, repo domainBot.IBotRepository) {
 						}
 
 						replyText, kb := processTelegramAdminCommand(ctx, repo, cfg, cb.Data)
-						_ = sendTelegramHTML(botToken, chatID, replyText, &kb)
+						if messageID > 0 {
+							err := editTelegramHTML(botToken, chatID, messageID, replyText, &kb)
+							if err != nil {
+								_ = sendTelegramHTML(botToken, chatID, replyText, &kb)
+							}
+						} else {
+							_ = sendTelegramHTML(botToken, chatID, replyText, &kb)
+						}
 						continue
 					}
 
@@ -302,6 +313,32 @@ func sendTelegramHTML(botToken string, chatID int64, htmlText string, keyboard *
 		if err2 == nil {
 			resp2.Body.Close()
 		}
+	}
+	return nil
+}
+
+func editTelegramHTML(botToken string, chatID int64, messageID int, htmlText string, keyboard *InlineKeyboardMarkup) error {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/editMessageText", botToken)
+	payload := map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+		"text":       htmlText,
+		"parse_mode": "HTML",
+	}
+	if keyboard != nil {
+		payload["reply_markup"] = keyboard
+	}
+
+	b, _ := json.Marshal(payload)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("editMessageText failed (%d): %s", resp.StatusCode, string(respBody))
 	}
 	return nil
 }

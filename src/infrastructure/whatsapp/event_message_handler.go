@@ -63,16 +63,14 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 		msgText := extractTextFromEvent(evt)
 		isGroup := strings.HasSuffix(evt.Info.Chat.String(), "@g.us")
 
-		// For private chats the Chat JID may be an @lid address.
-		// Use Sender JID (which is always a phone-based @s.whatsapp.net JID)
-		// so auto-reply rules, custom prompts, and cooldown maps key on the
-		// real phone number instead of the opaque LID.
-		botFrom := evt.Info.Chat.String()
-		if !isGroup {
-			if senderJID := evt.Info.Sender.ToNonAD(); senderJID.User != "" {
-				botFrom = senderJID.String() // e.g. 6282392115909@s.whatsapp.net
-			}
+		// For private chats, Chat JID may be @lid. Resolve to real phone JID
+		// using the LID map so custom prompts, auto-reply rules, and cooldown
+		// all key on the real phone number (e.g. 6282xxxxxxxx@s.whatsapp.net).
+		chatJID := evt.Info.Chat
+		if !isGroup && chatJID.Server == "lid" {
+			chatJID = NormalizeJIDFromLID(ctx, chatJID, client)
 		}
+		botFrom := chatJID.String()
 
 		botrepo.ProcessMessage(ctx, evt.Info.ID, botFrom, isGroup, msgText, botRepo, client)
 	}

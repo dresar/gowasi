@@ -523,10 +523,12 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 			"Pengirim memiliki wewenang penuh atas seluruh konfigurasi bot. Berikan layanan terbaik, hormati instruksi admin, dan bantu atur jadwal/fitur secara fleksibel.\n\n"+
 			"%s", normalizedPhone, normalizedPhone, systemPrompt)
 	} else if cfg.CustomNumberPrompts != nil {
-		// Try matching custom prompt with various phone formats:
-		// 1. Exact normalized phone (e.g. 628xxx)
-		// 2. Full JID (e.g. 628xxx@s.whatsapp.net) — for backward compat
-		// 3. Phone without leading country code (e.g. 08xxx from 628xxx)
+		// Match custom prompt with multiple phone format strategies:
+		// 1. Exact normalized phone (e.g. 6282392115909)
+		// 2. Full raw senderPhone as stored
+		// 3. Suffix match: last N digits — handles cases where number was stored
+		//    without full country code (e.g. stored "82392115909" or "62392115909"
+		//    should match incoming "6282392115909")
 		customPromptFound := ""
 		for _, tryPhone := range []string{normalizedPhone, senderPhone} {
 			if p, ok := cfg.CustomNumberPrompts[tryPhone]; ok && strings.TrimSpace(p) != "" {
@@ -534,18 +536,35 @@ func callAI(ctx context.Context, cfg *domainBot.AIConfig, userMessage, senderPho
 				break
 			}
 		}
-		// Also try partial match: if stored key is contained in normalized phone
 		if customPromptFound == "" {
 			for storedPhone, p := range cfg.CustomNumberPrompts {
 				storedClean := stripJID(storedPhone)
-				if storedClean != "" && strings.TrimSpace(p) != "" &&
-					(strings.Contains(normalizedPhone, storedClean) || strings.Contains(storedClean, normalizedPhone)) {
+				if storedClean == "" || strings.TrimSpace(p) == "" {
+					continue
+				}
+				// Exact / substring match
+				if strings.Contains(normalizedPhone, storedClean) || strings.Contains(storedClean, normalizedPhone) {
 					customPromptFound = strings.TrimSpace(p)
 					break
+				}
+				// Suffix match: at least last 9 digits must match
+				// Handles user typing "62392115909" when real number is "6282392115909"
+				minLen := 9
+				if len(storedClean) >= minLen && len(normalizedPhone) >= minLen {
+					sfxLen := len(storedClean)
+					if sfxLen > len(normalizedPhone) {
+						sfxLen = len(normalizedPhone)
+					}
+					if strings.HasSuffix(normalizedPhone, storedClean[len(storedClean)-sfxLen:]) ||
+						strings.HasSuffix(storedClean, normalizedPhone[len(normalizedPhone)-sfxLen:]) {
+						customPromptFound = strings.TrimSpace(p)
+						break
+					}
 				}
 			}
 		}
 		if customPromptFound != "" {
+			logrus.Infof("[BOT] Custom prompt applied for %s", normalizedPhone)
 			systemPrompt = fmt.Sprintf("[PERAN & INSTRUKSI KHUSUS UNTUK KONTAK %s]:\n%s\n\n"+
 				"PENTING: Kamu HARUS mengikuti instruksi, peran, dan gaya bahasa di atas secara PENUH! "+
 				"Jangan pernah keluar dari peran ini selama percakapan berlangsung.",

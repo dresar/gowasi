@@ -597,18 +597,31 @@ func processTelegramAdminCommand(ctx context.Context, repo domainBot.IBotReposit
 
 	if lower == "/status" {
 		keys := parseGroqKeys(cfg.APIKey)
+		rules, _ := repo.ListRules(ctx, "")
+		schedules, _ := repo.ListScheduledMessages(ctx, "")
 		mutedCount := len(cfg.BlockedNumbers)
+		promptsCount := len(cfg.CustomNumberPrompts)
+
 		statusBadge := "🔴 <b>OFFLINE</b>"
 		if cfg.Enabled {
 			statusBadge = "🟢 <b>ONLINE &amp; SERVING</b>"
 		}
+
+		kbBadge := "🔴 <b>Empty</b>"
+		if strings.TrimSpace(cfg.KnowledgeBase) != "" {
+			kbBadge = "🟢 <b>Active</b>"
+		}
+
 		return "📊 <b>STATUS EXECUTIVE MASTER ADMIN WA BOT</b>\n\n" +
-			fmt.Sprintf("• Status AI: %s\n", statusBadge) +
+			fmt.Sprintf("• Status AI Engine: %s\n", statusBadge) +
 			fmt.Sprintf("• Provider: <code>%s</code>\n", cfg.Provider) +
 			fmt.Sprintf("• Active Model: <code>%s</code>\n", cfg.Model) +
 			fmt.Sprintf("• Groq Keys Count: <b>%d Keys</b>\n", len(keys)) +
+			fmt.Sprintf("• Auto-Reply Rules: <b>%d Rules</b>\n", len(rules)) +
+			fmt.Sprintf("• Pesan Terjadwal: <b>%d Messages</b>\n", len(schedules)) +
 			fmt.Sprintf("• Muted Contacts: <b>%d Contacts</b>\n", mutedCount) +
-			fmt.Sprintf("• Custom Prompts: <b>%d Custom Prompts</b>\n", len(cfg.CustomNumberPrompts)) +
+			fmt.Sprintf("• Custom Prompts VIP: <b>%d Prompts</b>\n", promptsCount) +
+			fmt.Sprintf("• Knowledge Base: %s\n", kbBadge) +
 			fmt.Sprintf("• Response Cooldown: <code>%d ms</code>", cfg.CooldownMs), getMainMenuKeyboard()
 	}
 

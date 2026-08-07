@@ -21,27 +21,22 @@ type SQLiteRepository struct {
 	db *sql.DB
 }
 
-func NewSQLite(dsn string) (*SQLiteRepository, error) {
-	driver := sqlite.DriverName
-	db, err := sql.Open(driver, dsn)
+func NewSQLite(dbPath string) (domainBot.IBotRepository, error) {
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("botrepo sqlite open: %w", err)
+		return nil, fmt.Errorf("failed to open sqlite bot db (%s): %w", dbPath, err)
 	}
 	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
 	return &SQLiteRepository{db: db}, nil
 }
 
-func NewPostgres(dsn string) (*SQLiteRepository, error) {
+func NewPostgres(dsn string) (domainBot.IBotRepository, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("botrepo postgres open: %w", err)
+		return nil, fmt.Errorf("failed to open postgres bot db: %w", err)
 	}
-	db.SetMaxOpenConns(5)
 	return &SQLiteRepository{db: db}, nil
 }
-
-func (r *SQLiteRepository) Close() error { return r.db.Close() }
 
 func (r *SQLiteRepository) EnsureSchema(ctx context.Context) error {
 	stmts := []string{
@@ -70,7 +65,7 @@ func (r *SQLiteRepository) EnsureSchema(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS bot_ai_config (
 			id TEXT PRIMARY KEY,
 			device_id TEXT NOT NULL UNIQUE,
-			enabled INTEGER NOT NULL DEFAULT 0,
+			enabled INTEGER NOT NULL DEFAULT 1,
 			provider TEXT NOT NULL DEFAULT 'groq',
 			api_key TEXT NOT NULL DEFAULT '',
 			model TEXT NOT NULL DEFAULT 'llama-3.3-70b-versatile',
@@ -80,7 +75,7 @@ func (r *SQLiteRepository) EnsureSchema(ctx context.Context) error {
 			knowledge_base TEXT NOT NULL DEFAULT '',
 			max_tokens INTEGER NOT NULL DEFAULT 500,
 			temperature REAL NOT NULL DEFAULT 0.7,
-			cooldown_ms INTEGER NOT NULL DEFAULT 30000,
+			cooldown_ms INTEGER NOT NULL DEFAULT 3000,
 			reply_to_groups INTEGER NOT NULL DEFAULT 0,
 			reply_to_private INTEGER NOT NULL DEFAULT 1,
 			trigger_keyword TEXT NOT NULL DEFAULT '',
@@ -88,6 +83,9 @@ func (r *SQLiteRepository) EnsureSchema(ctx context.Context) error {
 			blocked_numbers TEXT NOT NULL DEFAULT '[]',
 			custom_number_prompts TEXT NOT NULL DEFAULT '{}',
 			custom_skills TEXT NOT NULL DEFAULT '[]',
+			admin_numbers TEXT NOT NULL DEFAULT '["6282392115909"]',
+			telegram_bot_token TEXT NOT NULL DEFAULT '',
+			telegram_admin_chat_id TEXT NOT NULL DEFAULT '',
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE TABLE IF NOT EXISTS bot_activity_logs (
@@ -125,8 +123,9 @@ func (r *SQLiteRepository) EnsureSchema(ctx context.Context) error {
 	_, _ = r.db.ExecContext(ctx, `ALTER TABLE bot_ai_config ADD COLUMN telegram_bot_token TEXT NOT NULL DEFAULT ''`)
 	_, _ = r.db.ExecContext(ctx, `ALTER TABLE bot_ai_config ADD COLUMN telegram_admin_chat_id TEXT NOT NULL DEFAULT ''`)
 
-	// Seed default rules if empty
+	// Seed default rules & config if empty
 	r.seedDefaultRulesIfEmpty(ctx)
+	r.seedDefaultAIConfigIfEmpty(ctx)
 
 	logrus.Info("[BOT_REPO] Storage schema ensured & seed check completed")
 	return nil
@@ -146,7 +145,15 @@ func (r *SQLiteRepository) seedDefaultRulesIfEmpty(ctx context.Context) {
 			Priority:     1,
 			TriggerType:  domainBot.TriggerContains,
 			TriggerValue: "halo",
-			ResponseText: "Halo! Selamat datang di Customer Service kami. Ada yang bisa kami bantu hari ini? 😊",
+			ResponseText: "Halo kak! Ada yang bisa kami bantu hari ini? 😊",
+		},
+		{
+			Name:         "Harga / Price / Biaya",
+			Enabled:      true,
+			Priority:     1,
+			TriggerType:  domainBot.TriggerContains,
+			TriggerValue: "harga",
+			ResponseText: "Untuk daftar harga lengkap dan promo terbaru, silakan cek katalog kami ya kak. 🙏",
 		},
 		{
 			Name:         "Assalamualaikum / Salam",
@@ -169,6 +176,16 @@ func (r *SQLiteRepository) seedDefaultRulesIfEmpty(ctx context.Context) {
 	for _, rule := range defaults {
 		_, _ = r.CreateRule(ctx, rule)
 	}
+}
+
+func (r *SQLiteRepository) seedDefaultAIConfigIfEmpty(ctx context.Context) {
+	var count int
+	_ = r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM bot_ai_config`).Scan(&count)
+	if count > 0 {
+		return
+	}
+	def := defaultAIConfig("")
+	_, _ = r.UpsertAIConfig(ctx, def)
 }
 
 func (r *SQLiteRepository) ListRules(ctx context.Context, deviceID string) ([]domainBot.AutoReplyRule, error) {
@@ -248,8 +265,7 @@ func (r *SQLiteRepository) UpdateRule(ctx context.Context, rule domainBot.AutoRe
 		updated_at=?
 		WHERE id=?`
 	_, err := r.db.ExecContext(ctx, q,
-		rule.Name, boolToInt(rule.Enabled), rule.Priority,
-		string(rule.TriggerType), rule.TriggerValue, boolToInt(rule.CaseSensitive),
+		rule.Name, boolToInt(rule.Enabled), rule.Priority, string(rule.TriggerType), rule.TriggerValue, boolToInt(rule.CaseSensitive),
 		boolToInt(rule.OnlyPrivate), boolToInt(rule.OnlyGroups), string(allowedJSON), string(blockedJSON),
 		rule.ResponseType, rule.ResponseText, string(addlJSON), rule.ResponseDelayMs,
 		rule.UpdatedAt, rule.ID,
